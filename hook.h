@@ -37,6 +37,9 @@ enum hookdir_opt
  */
 enum hookdir_opt configured_hookdir_opt(void);
 
+/* Provides the number of threads to use for parallel hook execution. */
+int configured_hook_jobs(void);
+
 struct run_hooks_opt
 {
 	/* Environment vars to be set for each hook */
@@ -54,14 +57,37 @@ struct run_hooks_opt
 
 	/* Path to file which should be piped to stdin for each hook */
 	const char *path_to_stdin;
+
+	/* Number of threads to parallelize across */
+	int jobs;
 };
 
-#define RUN_HOOKS_OPT_INIT  {   		\
+/*
+ * Callback provided to feed_pipe_fn and consume_sideband_fn.
+ */
+struct hook_cb_data {
+	int rc;
+	struct list_head *head;
+	struct list_head *run_me;
+	struct run_hooks_opt *options;
+};
+
+#define RUN_HOOKS_OPT_INIT_SYNC  {   		\
 	.env = STRVEC_INIT, 			\
 	.args = STRVEC_INIT, 			\
 	.path_to_stdin = NULL,			\
+	.jobs = 1,				\
 	.run_hookdir = configured_hookdir_opt()	\
 }
+
+#define RUN_HOOKS_OPT_INIT_ASYNC {		\
+	.env = STRVEC_INIT, 			\
+	.args = STRVEC_INIT, 			\
+	.path_to_stdin = NULL,			\
+	.jobs = configured_hook_jobs(),		\
+	.run_hookdir = configured_hookdir_opt()	\
+}
+
 
 void run_hooks_opt_init(struct run_hooks_opt *o);
 void run_hooks_opt_clear(struct run_hooks_opt *o);
