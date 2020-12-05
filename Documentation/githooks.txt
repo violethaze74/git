@@ -498,6 +498,8 @@ Both standard output and standard error output are forwarded to
 `git send-pack` on the other end, so you can simply `echo` messages
 for the user.
 
+Hooks run during 'post-update' will be run in parallel by default.
+
 reference-transaction
 ~~~~~~~~~~~~~~~~~~~~~
 
