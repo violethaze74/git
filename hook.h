@@ -2,6 +2,7 @@
 #include "list.h"
 #include "strbuf.h"
 #include "strvec.h"
+#include "run-command.h"
 
 struct hook
 {
@@ -14,6 +15,12 @@ struct hook
 	/* The literal command to run. */
 	struct strbuf command;
 	int from_hookdir;
+
+	/*
+	 * Use this to keep state for your feed_pipe_fn if you are using
+	 * run_hooks_opt.feed_pipe. Otherwise, do not touch it.
+	 */
+	void *feed_pipe_cb_data;
 };
 
 /*
@@ -57,12 +64,24 @@ struct run_hooks_opt
 
 	/* Path to file which should be piped to stdin for each hook */
 	const char *path_to_stdin;
+	/* Pipe each string to stdin, separated by newlines */
+	struct string_list str_stdin;
+	/*
+	 * Callback and state pointer to ask for more content to pipe to stdin.
+	 * Will be called repeatedly, for each hook. See
+	 * hook.c:pipe_from_stdin() for an example. Keep per-hook state in
+	 * hook.feed_pipe_cb_data (per process). Keep initialization context in
+	 * feed_pipe_ctx (shared by all processes).
+	 */
+	feed_pipe_fn feed_pipe;
+	void *feed_pipe_ctx;
 
 	/* Number of threads to parallelize across */
 	int jobs;
 
 	/* Path to initial working directory for subprocess */
 	const char *dir;
+
 };
 
 /*
@@ -81,6 +100,9 @@ struct hook_cb_data {
 	.path_to_stdin = NULL,			\
 	.jobs = 1,				\
 	.dir = NULL,				\
+	.str_stdin = STRING_LIST_INIT_DUP,	\
+	.feed_pipe = NULL,			\
+	.feed_pipe_ctx = NULL,			\
 	.run_hookdir = configured_hookdir_opt()	\
 }
 
@@ -90,6 +112,9 @@ struct hook_cb_data {
 	.path_to_stdin = NULL,			\
 	.jobs = configured_hook_jobs(),		\
 	.dir = NULL,				\
+	.str_stdin = STRING_LIST_INIT_DUP,	\
+	.feed_pipe = NULL,			\
+	.feed_pipe_ctx = NULL,			\
 	.run_hookdir = configured_hookdir_opt()	\
 }
 
