@@ -450,9 +450,8 @@ static int too_many_rename_candidates(int num_targets, int num_sources,
 	 */
 	if (rename_limit <= 0)
 		rename_limit = 32767;
-	if ((num_targets <= rename_limit || num_sources <= rename_limit) &&
-	    ((uint64_t)num_targets * (uint64_t)num_sources
-	     <= (uint64_t)rename_limit * (uint64_t)rename_limit))
+	if ((uint64_t)num_targets * (uint64_t)num_sources
+	    <= (uint64_t)rename_limit * (uint64_t)rename_limit)
 		return 0;
 
 	options->needed_rename_limit =
@@ -468,9 +467,8 @@ static int too_many_rename_candidates(int num_targets, int num_sources,
 			continue;
 		limited_sources++;
 	}
-	if ((num_targets <= rename_limit || limited_sources <= rename_limit) &&
-	    ((uint64_t)num_targets * (uint64_t)limited_sources
-	     <= (uint64_t)rename_limit * (uint64_t)rename_limit))
+	if ((uint64_t)num_targets * (uint64_t)limited_sources
+	    <= (uint64_t)rename_limit * (uint64_t)rename_limit)
 		return 2;
 	return 1;
 }
