@@ -173,7 +173,7 @@ static int estimate_similarity(struct repository *r,
 {
 	/* src points at a file that existed in the original tree (or
 	 * optionally a file in the destination tree) and dst points
-	 * at a newly created file.  They may be quite similar, in which
+	 * at a newly added file.  They may be quite similar, in which
 	 * case we want to say src is renamed to dst or src is copied into
 	 * dst, and then some edit has been applied to dst.
 	 *
@@ -652,9 +652,9 @@ void diffcore_rename(struct diff_options *options)
 		}
 		else if (!DIFF_FILE_VALID(p->one) && DIFF_FILE_VALID(p->two)) {
 			/*
-			 * Creation
+			 * Addition
 			 *
-			 * We would output this create record if it has
+			 * We would output this add record if it has
 			 * not been turned into a rename/copy already.
 			 */
 			struct diff_rename_dst *dst = locate_rename_dst(p->two);
@@ -664,7 +664,7 @@ void diffcore_rename(struct diff_options *options)
 			}
 			else
 				/* no matching rename/copy source, so
-				 * record this as a creation.
+				 * record this as an addition.
 				 */
 				diff_q(&outq, p);
 		}
