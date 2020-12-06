@@ -502,7 +502,7 @@ void diffcore_rename(struct diff_options *options)
 	struct diff_queue_struct outq;
 	struct diff_score *mx;
 	int i, j, rename_count, skip_unmodified = 0;
-	int num_create, dst_cnt;
+	int num_targets, dst_cnt;
 	struct progress *progress = NULL;
 
 	if (!minimum_score)
@@ -567,13 +567,13 @@ void diffcore_rename(struct diff_options *options)
 	 * Calculate how many renames are left (but all the source
 	 * files still remain as options for rename/copies!)
 	 */
-	num_create = (rename_dst_nr - rename_count);
+	num_targets = (rename_dst_nr - rename_count);
 
 	/* All done? */
-	if (!num_create)
+	if (!num_targets)
 		goto cleanup;
 
-	switch (too_many_rename_candidates(num_create, rename_src_nr, options)) {
+	switch (too_many_rename_candidates(num_targets, rename_src_nr, options)) {
 	case 1:
 		goto cleanup;
 	case 2:
@@ -590,7 +590,7 @@ void diffcore_rename(struct diff_options *options)
 				(uint64_t)rename_dst_nr * (uint64_t)rename_src_nr);
 	}
 
-	mx = xcalloc(st_mult(NUM_CANDIDATE_PER_DST, num_create), sizeof(*mx));
+	mx = xcalloc(st_mult(NUM_CANDIDATE_PER_DST, num_targets), sizeof(*mx));
 	for (dst_cnt = i = 0; i < rename_dst_nr; i++) {
 		struct diff_filespec *two = rename_dst[i].two;
 		struct diff_score *m;
