@@ -1056,7 +1056,8 @@ int cmd_pull(int argc, const char **argv, const char *prefix)
 
 		if (can_ff) {
 			/* we can fast-forward this without invoking rebase */
-			opt_ff = "--ff-only";
+			free(opt_ff);
+			opt_ff = xstrdup_or_null("--ff-only");
 			ret = run_merge();
 		} else {
 			ret = run_rebase(&newbase, &upstream);
