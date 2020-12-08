@@ -60,8 +60,8 @@ However, a non-fast-forward case looks very different.
 	origin/master in your repository
 ------------
 
-By default `git pull` will warn about these situations, however, most likely
-you would want to force a merge, which you can do with `git pull --merge`.
+By default `git pull` will fail on these situations, you will have to
+specify whether you want `--merge` or `--rebase`.
 
 Then "`git pull`" will fetch and replay the changes from the remote
 `master` branch since it diverged from the local `master` (i.e., `E`)

@@ -392,7 +392,7 @@ static enum pull_mode_type config_get_pull_mode(void)
 	if (!git_config_get_value("pull.mode", &value))
 		return parse_config_pull_mode("pull.mode", value);
 
-	return PULL_MODE_DEFAULT;
+	return PULL_MODE_FF_ONLY;
 }
 
 /**
@@ -1090,23 +1090,6 @@ int cmd_pull(int argc, const char **argv, const char *prefix)
 
 	if (mode == PULL_MODE_FF_ONLY && !can_ff)
 		die(_("The pull was not fast-forward, please either merge or rebase.\n"));
-
-	if (!opt_rebase && !can_ff && opt_verbosity >= 0 && (!opt_ff || !strcmp(opt_ff, "--ff"))) {
-		advise(_("The pull was not fast-forward, in the future you will have to choose a merge, or a rebase.\n"
-			"\n"
-			"To quell this message you have two main options:\n"
-			"\n"
-			"1. Adopt the new behavior:\n"
-			"\n"
-			"  git config --global pull.mode ff-only\n"
-			"\n"
-			"2. Maintain the current behavior:\n"
-			"\n"
-			"  git config --global pull.mode merge\n"
-			"\n"
-			"For now we will fall back to the traditional behavior (merge).\n"
-			"Read \"git pull --help\" for more information."));
-	}
 
 	if (opt_rebase >= REBASE_TRUE) {
 		int ret = 0;

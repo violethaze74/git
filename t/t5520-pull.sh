@@ -879,39 +879,31 @@ setup_non_ff () {
 	setup_other master^
 }
 
-test_expect_success 'fast-forward (pull.mode=ff-only)' '
+test_expect_success 'fast-forward (default)' '
 	setup_ff &&
-	git -c pull.mode=ff-only pull
+	git pull
 '
 
-test_expect_success 'non-fast-forward (pull.mode=ff-only)' '
+test_expect_success 'non-fast-forward (default)' '
 	setup_non_ff &&
-	test_must_fail git -c pull.mode=ff-only pull
+	test_must_fail git pull
 '
 
-test_expect_success 'non-fast-forward with merge (pull.mode=ff-only)' '
+test_expect_success 'non-fast-forward with merge (default)' '
 	setup_non_ff &&
-	git -c pull.mode=ff-only pull --merge
+	git pull --merge
 '
 
-test_expect_success 'non-fast-forward with rebase (pull.mode=ff-only)' '
+test_expect_success 'non-fast-forward with rebase (default)' '
 	setup_non_ff &&
-	git -c pull.mode=ff-only pull --rebase
+	git pull --rebase
 '
 
-test_expect_success 'non-fast-forward error message (pull.mode=ff-only)' '
+test_expect_success 'non-fast-forward error message (default)' '
 	setup_non_ff &&
-	test_must_fail git -c pull.mode=ff-only pull 2> error &&
+	test_must_fail git pull 2> error &&
 	cat error &&
 	test_i18ngrep "The pull was not fast-forward" error
-'
-
-test_expect_success 'non-fast-forward warning (default)' '
-	setup_non_ff &&
-	git pull 2> error &&
-	cat error &&
-	test_i18ngrep "The pull was not fast-forward" error &&
-	test_i18ngrep "in the future you will have to choose" error
 '
 
 test_done
