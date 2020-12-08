@@ -98,8 +98,8 @@ for details).
 
 branch.<name>.pullmode::
 	When "git pull" is run, this determines if it would either merge or
-	rebase the fetched branch. The possible values are 'merge', and
-	'rebase'. See "pull.mode" for doing this in a non
+	rebase the fetched branch. The possible values are 'merge',
+	'rebase', and 'ff-only'. See "pull.mode" for doing this in a non
 	branch-specific manner.
 
 branch.<name>.description::

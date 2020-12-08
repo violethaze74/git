@@ -335,6 +335,9 @@ static int config_read_branches(const char *key, const char *value, void *cb)
 		case PULL_MODE_REBASE:
 			info->rebase = REBASE_TRUE;
 			break;
+		case PULL_MODE_FF_ONLY:
+			info->rebase = REBASE_TRUE;
+			break;
 		default:
 			info->rebase = REBASE_INVALID;
 			break;

@@ -1088,6 +1088,9 @@ int cmd_pull(int argc, const char **argv, const char *prefix)
 
 	can_ff = get_can_ff(&orig_head, &merge_heads.oid[0]);
 
+	if (mode == PULL_MODE_FF_ONLY && !can_ff)
+		die(_("The pull was not fast-forward, please either merge or rebase.\n"));
+
 	if (!opt_rebase && !can_ff && opt_verbosity >= 0 && (!opt_ff || !strcmp(opt_ff, "--ff"))) {
 		advise(_("Pulling without specifying how to reconcile divergent branches is discouraged;\n"
 			"you need to specify if you want a merge, or a rebase.\n"
@@ -1095,7 +1098,7 @@ int cmd_pull(int argc, const char **argv, const char *prefix)
 			"\n"
 			"  git config pull.mode merge    # (the default strategy)\n"
 			"  git config pull.mode rebase\n"
-			"  git config pull.ff only       # fast-forward only\n"
+			"  git config pull.mode ff-only  # fast-forward only\n"
 			"\n"
 			"You can replace \"git config\" with \"git config --global\" to set a default\n"
 			"preference for all repositories.\n"
