@@ -131,6 +131,8 @@ static struct option pull_options[] = {
 		"(false|true|merges|preserve|interactive)",
 		N_("incorporate changes by rebasing rather than merging"),
 		PARSE_OPT_OPTARG, parse_opt_rebase),
+	OPT_SET_INT('m', "merge", &opt_rebase,
+		N_("incorporate changes by merging"), REBASE_FALSE),
 	OPT_PASSTHRU('n', NULL, &opt_diffstat, NULL,
 		N_("do not show a diffstat at the end of the merge"),
 		PARSE_OPT_NOARG | PARSE_OPT_NONEG),
@@ -1042,7 +1044,7 @@ int cmd_pull(int argc, const char **argv, const char *prefix)
 			"\n"
 			"You can replace \"git config\" with \"git config --global\" to set a default\n"
 			"preference for all repositories.\n"
-			"If unsure, run \"git pull --no-rebase\".\n"
+			"If unsure, run \"git pull --merge\".\n"
 			"Read \"git pull --help\" for more information."));
 	}
 
