@@ -41,6 +41,20 @@ Assume the following history exists and the current branch is
 ------------
 	  A---B---C master on origin
 	 /
+    D---E master
+------------
+
+Then `git pull` will merge in a fast-forward way up to the new master.
+
+------------
+    D---E---A---B---C master, origin/master
+------------
+
+However, a non-fast-forward case looks very different.
+
+------------
+	  A---B---C master on origin
+	 /
     D---E---F---G master
 	^
 	origin/master in your repository
