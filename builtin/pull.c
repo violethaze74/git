@@ -1092,17 +1092,19 @@ int cmd_pull(int argc, const char **argv, const char *prefix)
 		die(_("The pull was not fast-forward, please either merge or rebase.\n"));
 
 	if (!opt_rebase && !can_ff && opt_verbosity >= 0 && (!opt_ff || !strcmp(opt_ff, "--ff"))) {
-		advise(_("Pulling without specifying how to reconcile divergent branches is discouraged;\n"
-			"you need to specify if you want a merge, or a rebase.\n"
-			"You can squelch this message by running one of the following commands:\n"
+		advise(_("The pull was not fast-forward, in the future you will have to choose a merge, or a rebase.\n"
 			"\n"
-			"  git config pull.mode merge    # (the default strategy)\n"
-			"  git config pull.mode rebase\n"
-			"  git config pull.mode ff-only  # fast-forward only\n"
+			"To quell this message you have two main options:\n"
 			"\n"
-			"You can replace \"git config\" with \"git config --global\" to set a default\n"
-			"preference for all repositories.\n"
-			"If unsure, run \"git pull --merge\".\n"
+			"1. Adopt the new behavior:\n"
+			"\n"
+			"  git config --global pull.mode ff-only\n"
+			"\n"
+			"2. Maintain the current behavior:\n"
+			"\n"
+			"  git config --global pull.mode merge\n"
+			"\n"
+			"For now we will fall back to the traditional behavior (merge).\n"
 			"Read \"git pull --help\" for more information."));
 	}
 
