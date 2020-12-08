@@ -33,7 +33,6 @@ test_expect_success 'pull.rebase not set' '
 	test_decode_color <err >decoded &&
 	test_i18ngrep "<YELLOW>hint: " decoded &&
 	test_i18ngrep "Pulling without specifying how to reconcile" decoded
-
 '
 
 test_expect_success 'pull.rebase not set (fast-forward)' '
