@@ -29,6 +29,25 @@
 #include "unpack-trees.h"
 #include "xdiff-interface.h"
 
+struct rename_info {
+	/*
+	 * pairs: pairing of filenames from diffcore_rename()
+	 *
+	 * Index 1 and 2 correspond to sides 1 & 2 as used in
+	 * conflict_info.stages.  Index 0 unused.
+	 */
+	struct diff_queue_struct pairs[3];
+
+	/*
+	 * needed_limit: value needed for inexact rename detection to run
+	 *
+	 * If the current rename limit wasn't high enough for inexact
+	 * rename detection to run, this records the limit needed.  Otherwise,
+	 * this value remains 0.
+	 */
+	int needed_limit;
+};
+
 struct merge_options_internal {
 	/*
 	 * paths: primary data structure in all of merge ort.
@@ -95,6 +114,11 @@ struct merge_options_internal {
 	 * for later processing.
 	 */
 	struct strmap output;
+
+	/*
+	 * renames: various data relating to rename detection
+	 */
+	struct rename_info *renames;
 
 	/*
 	 * current_dir_name: temporary var used in collect_merge_info_callback()
@@ -1356,6 +1380,7 @@ static void merge_start(struct merge_options *opt, struct merge_result *result)
 
 	/* Initialization of opt->priv, our internal merge data */
 	opt->priv = xcalloc(1, sizeof(*opt->priv));
+	opt->priv->renames = xcalloc(1, sizeof(*opt->priv->renames));
 
 	/*
 	 * Although we initialize opt->priv->paths with strdup_strings=0,
