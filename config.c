@@ -333,7 +333,7 @@ int git_config_include(const char *var, const char *value, void *data)
 	return ret;
 }
 
-void git_config_push_parameter(const char *text)
+static void git_config_push_split_parameter(const char *key, const char *value)
 {
 	struct strbuf env = STRBUF_INIT;
 	const char *old = getenv(CONFIG_DATA_ENVIRONMENT);
@@ -341,30 +341,68 @@ void git_config_push_parameter(const char *text)
 		strbuf_addstr(&env, old);
 		strbuf_addch(&env, ' ');
 	}
-	sq_quote_buf(&env, text);
+	sq_quote_buf(&env, key);
+	strbuf_addch(&env, '=');
+	if (value)
+		sq_quote_buf(&env, value);
 	setenv(CONFIG_DATA_ENVIRONMENT, env.buf, 1);
 	strbuf_release(&env);
 }
 
+void git_config_push_parameter(const char *text)
+{
+	const char *value;
+
+	/*
+	 * When we see:
+	 *
+	 *   section.subsection=with=equals.key=value
+	 *
+	 * we cannot tell if it means:
+	 *
+	 *   [section "subsection=with=equals"]
+	 *   key = value
+	 *
+	 * or:
+	 *
+	 *   [section]
+	 *   subsection = with=equals.key=value
+	 *
+	 * We parse left-to-right for the first "=", meaning we'll prefer to
+	 * keep the value intact over the subsection. This is historical, but
+	 * also sensible since values are more likely to contain odd or
+	 * untrusted input than a section name.
+	 *
+	 * A missing equals is explicitly allowed (as a bool-only entry).
+	 */
+	value = strchr(text, '=');
+	if (value) {
+		char *key = xmemdupz(text, value - text);
+		git_config_push_split_parameter(key, value + 1);
+		free(key);
+	} else {
+		git_config_push_split_parameter(text, NULL);
+	}
+}
+
 void git_config_push_env(const char *spec)
 {
-	struct strbuf buf = STRBUF_INIT;
+	char *key;
 	const char *env_name;
 	const char *env_value;
 
 	env_name = strrchr(spec, '=');
 	if (!env_name)
 		die("invalid config format: %s", spec);
+	key = xmemdupz(spec, env_name - spec);
 	env_name++;
 
 	env_value = getenv(env_name);
 	if (!env_value)
 		die("config variable missing for '%s'", env_name);
 
-	strbuf_add(&buf, spec, env_name - spec);
-	strbuf_addstr(&buf, env_value);
-	git_config_push_parameter(buf.buf);
-	strbuf_release(&buf);
+	git_config_push_split_parameter(key, env_value);
+	free(key);
 }
 
 static inline int iskeychar(int c)
@@ -504,6 +542,57 @@ int git_config_parse_parameter(const char *text,
 	return ret;
 }
 
+static int parse_config_env_list(char *env, config_fn_t fn, void *data)
+{
+	char *cur = env;
+	while (cur && *cur) {
+		const char *key = sq_dequote_step(cur, &cur);
+		if (!key)
+			return error(_("bogus format in %s"),
+				     CONFIG_DATA_ENVIRONMENT);
+
+		if (!cur || isspace(*cur)) {
+			/* old-style 'key=value' */
+			if (git_config_parse_parameter(key, fn, data) < 0)
+				return -1;
+		}
+		else if (*cur == '=') {
+			/* new-style 'key'='value' */
+			const char *value;
+
+			cur++;
+			if (*cur == '\'') {
+				/* quoted value */
+				value = sq_dequote_step(cur, &cur);
+				if (!value || (cur && !isspace(*cur))) {
+					return error(_("bogus format in %s"),
+						     CONFIG_DATA_ENVIRONMENT);
+				}
+			} else if (!*cur || isspace(*cur)) {
+				/* implicit bool: 'key'= */
+				value = NULL;
+			} else {
+				return error(_("bogus format in %s"),
+					     CONFIG_DATA_ENVIRONMENT);
+			}
+
+			if (config_parse_pair(key, value, fn, data) < 0)
+				return -1;
+		}
+		else {
+			/* unknown format */
+			return error(_("bogus format in %s"),
+				     CONFIG_DATA_ENVIRONMENT);
+		}
+
+		if (cur) {
+			while (isspace(*cur))
+				cur++;
+		}
+	}
+	return 0;
+}
+
 int git_config_from_parameters(config_fn_t fn, void *data)
 {
 	const char *env;
@@ -563,22 +652,9 @@ int git_config_from_parameters(config_fn_t fn, void *data)
 
 	env = getenv(CONFIG_DATA_ENVIRONMENT);
 	if (env) {
-		int nr = 0, alloc = 0;
-
 		/* sq_dequote will write over it */
 		envw = xstrdup(env);
-
-		if (sq_dequote_to_argv(envw, &argv, &nr, &alloc) < 0) {
-			ret = error(_("bogus format in %s"), CONFIG_DATA_ENVIRONMENT);
-			goto out;
-		}
-
-		for (i = 0; i < nr; i++) {
-			if (git_config_parse_parameter(argv[i], fn, data) < 0) {
-				ret = -1;
-				goto out;
-			}
-		}
+		ret = parse_config_env_list(envw, fn, data);
 	}
 
 out:
