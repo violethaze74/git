@@ -13,6 +13,7 @@ esac
 make
 case "$jobname" in
 linux-gcc)
+	export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 	make test
 	export GIT_TEST_SPLIT_INDEX=yes
 	export GIT_TEST_FULL_IN_PACK_ARRAY=true
@@ -23,6 +24,7 @@ linux-gcc)
 	export GIT_TEST_MULTI_PACK_INDEX=1
 	export GIT_TEST_ADD_I_USE_BUILTIN=1
 	export GIT_TEST_CHECKOUT_WORKERS=2
+	export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=master
 	make test
 	;;
 linux-clang)
