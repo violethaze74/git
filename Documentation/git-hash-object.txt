@@ -58,6 +58,10 @@ OPTIONS
 	stress-testing Git itself or reproducing characteristics of corrupt or
 	bogus objects encountered in the wild.
 
+SEE ALSO
+--------
+linkgit:git-mktag[1]
+
 GIT
 ---
 Part of the linkgit:git[1] suite
