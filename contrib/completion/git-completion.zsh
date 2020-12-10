@@ -45,10 +45,20 @@ fi
 
 local old_complete="$functions[complete]"
 functions[complete]=:
+COMP_WORDBREAKS=':'
 GIT_SOURCING_ZSH_COMPLETION=y . "$script"
 functions[complete]="$old_complete"
 
 __gitcomp ()
+{
+	emulate -L zsh
+
+	local IFS=$' \t\n'
+	compset -P '*[=:]'
+	compadd -Q -S "${4- }" -p "${2-}" -- ${=1} && _ret=0
+}
+
+__gitcomp_opts ()
 {
 	emulate -L zsh
 
@@ -118,16 +128,6 @@ __gitcomp_file ()
 
 	compset -P '*[=:]'
 	compadd -f -p "${2-}" -- ${(f)1} && _ret=0
-}
-
-__gitcomp_direct_append ()
-{
-	__gitcomp_direct "$@"
-}
-
-__gitcomp_nl_append ()
-{
-	__gitcomp_nl "$@"
 }
 
 __gitcomp_file_direct ()
