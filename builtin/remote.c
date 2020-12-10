@@ -269,7 +269,7 @@ static int config_read_branches(const char *key, const char *value, void *cb)
 	char *name;
 	struct string_list_item *item;
 	struct branch_info *info;
-	enum { REMOTE, MERGE, REBASE, PUSH_REMOTE } type;
+	enum { REMOTE, MERGE, REBASE, PUSH_REMOTE, PULL_MODE } type;
 	size_t key_len;
 
 	if (!starts_with(key, "branch."))
@@ -284,6 +284,8 @@ static int config_read_branches(const char *key, const char *value, void *cb)
 		type = REBASE;
 	else if (strip_suffix(key, ".pushremote", &key_len))
 		type = PUSH_REMOTE;
+	else if (strip_suffix(key, ".pullmode", &key_len))
+		type = PULL_MODE;
 	else
 		return 0;
 	name = xmemdupz(key, key_len);
@@ -324,6 +326,24 @@ static int config_read_branches(const char *key, const char *value, void *cb)
 			warning(_("more than one %s"), orig_key);
 		info->push_remote_name = xstrdup(value);
 		break;
+	case PULL_MODE: {
+		int mode = pull_mode_parse_value(value);
+		switch (mode) {
+		case PULL_MODE_MERGE:
+			info->rebase = REBASE_FALSE;
+			break;
+		case PULL_MODE_REBASE:
+			info->rebase = REBASE_TRUE;
+			break;
+		case PULL_MODE_FF_ONLY:
+			info->rebase = REBASE_TRUE;
+			break;
+		default:
+			info->rebase = REBASE_INVALID;
+			break;
+		}
+		break;
+	}
 	default:
 		BUG("unexpected type=%d", type);
 	}
