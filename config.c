@@ -8,6 +8,7 @@
 #include "cache.h"
 #include "branch.h"
 #include "config.h"
+#include "environment.h"
 #include "repository.h"
 #include "lockfile.h"
 #include "exec-cmd.h"
@@ -345,6 +346,27 @@ void git_config_push_parameter(const char *text)
 	strbuf_release(&env);
 }
 
+void git_config_push_env(const char *spec)
+{
+	struct strbuf buf = STRBUF_INIT;
+	const char *env_name;
+	const char *env_value;
+
+	env_name = strrchr(spec, '=');
+	if (!env_name)
+		die("invalid config format: %s", spec);
+	env_name++;
+
+	env_value = getenv(env_name);
+	if (!env_value)
+		die("config variable missing for '%s'", env_name);
+
+	strbuf_add(&buf, spec, env_name - spec);
+	strbuf_addstr(&buf, env_value);
+	git_config_push_parameter(buf.buf);
+	strbuf_release(&buf);
+}
+
 static inline int iskeychar(int c)
 {
 	return isalnum(c) || c == '-';
@@ -437,11 +459,26 @@ int git_config_key_is_valid(const char *key)
 	return !git_config_parse_key_1(key, NULL, NULL, 1);
 }
 
+static int config_parse_pair(const char *key, const char *value,
+			  config_fn_t fn, void *data)
+{
+	char *canonical_name;
+	int ret;
+
+	if (!strlen(key))
+		return error(_("empty config key"));
+	if (git_config_parse_key(key, &canonical_name, NULL))
+		return -1;
+
+	ret = (fn(canonical_name, value, data) < 0) ? -1 : 0;
+	free(canonical_name);
+	return ret;
+}
+
 int git_config_parse_parameter(const char *text,
 			       config_fn_t fn, void *data)
 {
 	const char *value;
-	char *canonical_name;
 	struct strbuf **pair;
 	int ret;
 
@@ -462,50 +499,91 @@ int git_config_parse_parameter(const char *text,
 		return error(_("bogus config parameter: %s"), text);
 	}
 
-	if (git_config_parse_key(pair[0]->buf, &canonical_name, NULL)) {
-		ret = -1;
-	} else {
-		ret = (fn(canonical_name, value, data) < 0) ? -1 : 0;
-		free(canonical_name);
-	}
+	ret = config_parse_pair(pair[0]->buf, value, fn, data);
 	strbuf_list_free(pair);
 	return ret;
 }
 
 int git_config_from_parameters(config_fn_t fn, void *data)
 {
-	const char *env = getenv(CONFIG_DATA_ENVIRONMENT);
+	const char *env;
+	struct strbuf envvar = STRBUF_INIT;
+	struct strvec to_free = STRVEC_INIT;
 	int ret = 0;
-	char *envw;
+	char *envw = NULL;
 	const char **argv = NULL;
-	int nr = 0, alloc = 0;
 	int i;
 	struct config_source source;
-
-	if (!env)
-		return 0;
 
 	memset(&source, 0, sizeof(source));
 	source.prev = cf;
 	source.origin_type = CONFIG_ORIGIN_CMDLINE;
 	cf = &source;
 
-	/* sq_dequote will write over it */
-	envw = xstrdup(env);
+	env = getenv(CONFIG_COUNT_ENVIRONMENT);
+	if (env) {
+		unsigned long count;
+		char *endp;
 
-	if (sq_dequote_to_argv(envw, &argv, &nr, &alloc) < 0) {
-		ret = error(_("bogus format in %s"), CONFIG_DATA_ENVIRONMENT);
-		goto out;
+		count = strtoul(env, &endp, 10);
+		if (*endp) {
+			ret = error(_("bogus count in %s"), CONFIG_COUNT_ENVIRONMENT);
+			goto out;
+		}
+		if (count > INT_MAX) {
+			ret = error(_("too many entries in %s"), CONFIG_COUNT_ENVIRONMENT);
+			goto out;
+		}
+
+		for (i = 0; i < count; i++) {
+			const char *key, *value;
+
+			strbuf_addf(&envvar, "GIT_CONFIG_KEY_%d", i);
+			key = getenv_safe(&to_free, envvar.buf);
+			if (!key) {
+				ret = error(_("missing config key %s"), envvar.buf);
+				goto out;
+			}
+			strbuf_reset(&envvar);
+
+			strbuf_addf(&envvar, "GIT_CONFIG_VALUE_%d", i);
+			value = getenv_safe(&to_free, envvar.buf);
+			if (!value) {
+				ret = error(_("missing config value %s"), envvar.buf);
+				goto out;
+			}
+			strbuf_reset(&envvar);
+
+			if (config_parse_pair(key, value, fn, data) < 0) {
+				ret = -1;
+				goto out;
+			}
+		}
 	}
 
-	for (i = 0; i < nr; i++) {
-		if (git_config_parse_parameter(argv[i], fn, data) < 0) {
-			ret = -1;
+	env = getenv(CONFIG_DATA_ENVIRONMENT);
+	if (env) {
+		int nr = 0, alloc = 0;
+
+		/* sq_dequote will write over it */
+		envw = xstrdup(env);
+
+		if (sq_dequote_to_argv(envw, &argv, &nr, &alloc) < 0) {
+			ret = error(_("bogus format in %s"), CONFIG_DATA_ENVIRONMENT);
 			goto out;
+		}
+
+		for (i = 0; i < nr; i++) {
+			if (git_config_parse_parameter(argv[i], fn, data) < 0) {
+				ret = -1;
+				goto out;
+			}
 		}
 	}
 
 out:
+	strbuf_release(&envvar);
+	strvec_clear(&to_free);
 	free(argv);
 	free(envw);
 	cf = source.prev;

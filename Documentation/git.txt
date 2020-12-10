@@ -13,7 +13,7 @@ SYNOPSIS
     [--exec-path[=<path>]] [--html-path] [--man-path] [--info-path]
     [-p|--paginate|-P|--no-pager] [--no-replace-objects] [--bare]
     [--git-dir=<path>] [--work-tree=<path>] [--namespace=<name>]
-    [--super-prefix=<path>]
+    [--super-prefix=<path>] [--config-env <name>=<envvar>]
     <command> [<args>]
 
 DESCRIPTION
@@ -79,6 +79,15 @@ Note that omitting the `=` in `git -c foo.bar ...` is allowed and sets
 config file). Including the equals but with an empty value (like `git -c
 foo.bar= ...`) sets `foo.bar` to the empty string which `git config
 --type=bool` will convert to `false`.
+
+--config-env=<name>=<envvar>::
+	Pass a configuration parameter to the command. The <envvar>
+	given will be replaced with the contents of the environment
+	variable of that name. In contrast to `-c`, an envvar must
+	always be given and exist in the environment. Passing an
+	environment variable with empty value will set <name> to the
+	empty string which `git config --type=bool` will convert to
+	`false`.
 
 --exec-path[=<path>]::
 	Path to wherever your core Git programs are installed.
