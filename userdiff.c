@@ -13,6 +13,16 @@ static int drivers_alloc;
 #define IPATTERN(name, pattern, word_regex)			\
 	{ name, NULL, -1, { pattern, REG_EXTENDED | REG_ICASE }, \
 	  word_regex "|[^[:space:]]|[\xc0-\xff][\x80-\xbf]+" }
+
+/*
+ * Built-in drivers for various languages, sorted by their names
+ * (except that the "default" is left at the end).
+ *
+ * When writing or updating patterns, assume that the contents these
+ * patterns are applied to are syntactically correct.  The patterns
+ * can be simple without implementing all syntactical corner cases, as
+ * long as they are sufficiently permissive.
+ */
 static struct userdiff_driver builtin_drivers[] = {
 IPATTERN("ada",
 	 "!^(.*[ \t])?(is[ \t]+new|renames|is[ \t]+separate)([ \t].*)?$\n"
@@ -142,7 +152,11 @@ PATTERNS("html",
 	 "[^<>= \t]+"),
 PATTERNS("java",
 	 "!^[ \t]*(catch|do|for|if|instanceof|new|return|switch|throw|while)\n"
-	 "^[ \t]*(([A-Za-z_][A-Za-z_0-9]*[ \t]+)+[A-Za-z_][A-Za-z_0-9]*[ \t]*\\([^;]*)$",
+	 /* Class, enum, and interface declarations */
+	 "^[ \t]*(([a-z]+[ \t]+)*(class|enum|interface)[ \t]+[A-Za-z][A-Za-z0-9_$]*[ \t]+.*)$\n"
+	 /* Method definitions; note that constructor signatures are not */
+	 /* matched because they are indistinguishable from method calls. */
+	 "^[ \t]*(([A-Za-z_<>&][][?&<>.,A-Za-z_0-9]*[ \t]+)+[A-Za-z_][A-Za-z_0-9]*[ \t]*\\([^;]*)$",
 	 /* -- */
 	 "[a-zA-Z_][a-zA-Z0-9_]*"
 	 "|[-+0-9.e]+[fFlL]?|0[xXbB]?[0-9a-fA-F]+[lL]?"
