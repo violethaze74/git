@@ -632,10 +632,13 @@ static int prepare_commit_graph(struct repository *r)
 	struct object_directory *odb;
 
 	/*
+	 * Early return if there is no git dir or if the commit graph is
+	 * disabled.
+	 *
 	 * This must come before the "already attempted?" check below, because
 	 * we want to disable even an already-loaded graph file.
 	 */
-	if (r->commit_graph_disabled)
+	if (!r->gitdir || r->commit_graph_disabled)
 		return 0;
 
 	if (r->objects->commit_graph_attempted)
@@ -713,6 +716,7 @@ static void close_commit_graph_one(struct commit_graph *g)
 	if (!g)
 		return;
 
+	clear_commit_graph_data_slab(&commit_graph_data_slab);
 	close_commit_graph_one(g->base_graph);
 	free_commit_graph(g);
 }
@@ -723,7 +727,7 @@ void close_commit_graph(struct raw_object_store *o)
 	o->commit_graph = NULL;
 }
 
-static int bsearch_graph(struct commit_graph *g, struct object_id *oid, uint32_t *pos)
+static int bsearch_graph(struct commit_graph *g, const struct object_id *oid, uint32_t *pos)
 {
 	return bsearch_hash(oid->hash, g->chunk_oid_fanout,
 			    g->chunk_oid_lookup, g->hash_len, pos);
@@ -864,26 +868,55 @@ static int fill_commit_in_graph(struct repository *r,
 	return 1;
 }
 
-static int find_commit_in_graph(struct commit *item, struct commit_graph *g, uint32_t *pos)
+static int search_commit_pos_in_graph(const struct object_id *id, struct commit_graph *g, uint32_t *pos)
+{
+	struct commit_graph *cur_g = g;
+	uint32_t lex_index;
+
+	while (cur_g && !bsearch_graph(cur_g, id, &lex_index))
+		cur_g = cur_g->base_graph;
+
+	if (cur_g) {
+		*pos = lex_index + cur_g->num_commits_in_base;
+		return 1;
+	}
+
+	return 0;
+}
+
+static int find_commit_pos_in_graph(struct commit *item, struct commit_graph *g, uint32_t *pos)
 {
 	uint32_t graph_pos = commit_graph_position(item);
 	if (graph_pos != COMMIT_NOT_FROM_GRAPH) {
 		*pos = graph_pos;
 		return 1;
 	} else {
-		struct commit_graph *cur_g = g;
-		uint32_t lex_index;
-
-		while (cur_g && !bsearch_graph(cur_g, &(item->object.oid), &lex_index))
-			cur_g = cur_g->base_graph;
-
-		if (cur_g) {
-			*pos = lex_index + cur_g->num_commits_in_base;
-			return 1;
-		}
-
-		return 0;
+		return search_commit_pos_in_graph(&item->object.oid, g, pos);
 	}
+}
+
+struct commit *lookup_commit_in_graph(struct repository *repo, const struct object_id *id)
+{
+	struct commit *commit;
+	uint32_t pos;
+
+	if (!repo->objects->commit_graph)
+		return NULL;
+	if (!search_commit_pos_in_graph(id, repo->objects->commit_graph, &pos))
+		return NULL;
+	if (!repo_has_object_file(repo, id))
+		return NULL;
+
+	commit = lookup_commit(repo, id);
+	if (!commit)
+		return NULL;
+	if (commit->object.parsed)
+		return commit;
+
+	if (!fill_commit_in_graph(repo, commit, repo->objects->commit_graph, pos))
+		return NULL;
+
+	return commit;
 }
 
 static int parse_commit_in_graph_one(struct repository *r,
@@ -895,7 +928,7 @@ static int parse_commit_in_graph_one(struct repository *r,
 	if (item->object.parsed)
 		return 1;
 
-	if (find_commit_in_graph(item, g, &pos))
+	if (find_commit_pos_in_graph(item, g, &pos))
 		return fill_commit_in_graph(r, item, g, pos);
 
 	return 0;
@@ -921,7 +954,7 @@ void load_commit_graph_info(struct repository *r, struct commit *item)
 	uint32_t pos;
 	if (!prepare_commit_graph(r))
 		return;
-	if (find_commit_in_graph(item, r->objects->commit_graph, &pos))
+	if (find_commit_pos_in_graph(item, r->objects->commit_graph, &pos))
 		fill_commit_graph_info(item, r->objects->commit_graph, pos);
 }
 
@@ -1091,9 +1124,9 @@ static int write_graph_chunk_data(struct hashfile *f,
 				edge_value += ctx->new_num_commits_in_base;
 			else if (ctx->new_base_graph) {
 				uint32_t pos;
-				if (find_commit_in_graph(parent->item,
-							 ctx->new_base_graph,
-							 &pos))
+				if (find_commit_pos_in_graph(parent->item,
+							     ctx->new_base_graph,
+							     &pos))
 					edge_value = pos;
 			}
 
@@ -1122,9 +1155,9 @@ static int write_graph_chunk_data(struct hashfile *f,
 				edge_value += ctx->new_num_commits_in_base;
 			else if (ctx->new_base_graph) {
 				uint32_t pos;
-				if (find_commit_in_graph(parent->item,
-							 ctx->new_base_graph,
-							 &pos))
+				if (find_commit_pos_in_graph(parent->item,
+							     ctx->new_base_graph,
+							     &pos))
 					edge_value = pos;
 			}
 
@@ -1235,9 +1268,9 @@ static int write_graph_chunk_extra_edges(struct hashfile *f,
 				edge_value += ctx->new_num_commits_in_base;
 			else if (ctx->new_base_graph) {
 				uint32_t pos;
-				if (find_commit_in_graph(parent->item,
-							 ctx->new_base_graph,
-							 &pos))
+				if (find_commit_pos_in_graph(parent->item,
+							     ctx->new_base_graph,
+							     &pos))
 					edge_value = pos;
 			}
 
@@ -2096,7 +2129,7 @@ static void sort_and_scan_merged_commits(struct write_commit_graph_context *ctx)
 
 	ctx->num_extra_edges = 0;
 	for (i = 0; i < ctx->commits.nr; i++) {
-		display_progress(ctx->progress, i);
+		display_progress(ctx->progress, i + 1);
 
 		if (i && oideq(&ctx->commits.list[i - 1]->object.oid,
 			  &ctx->commits.list[i]->object.oid)) {

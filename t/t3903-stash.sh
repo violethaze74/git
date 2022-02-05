@@ -10,6 +10,25 @@ export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
 . ./test-lib.sh
 
+test_expect_success 'usage on cmd and subcommand invalid option' '
+	test_expect_code 129 git stash --invalid-option 2>usage &&
+	grep "or: git stash" usage &&
+
+	test_expect_code 129 git stash push --invalid-option 2>usage &&
+	! grep "or: git stash" usage
+'
+
+test_expect_success 'usage on main command -h emits a summary of subcommands' '
+	test_expect_code 129 git stash -h >usage &&
+	grep -F "usage: git stash list" usage &&
+	grep -F "or: git stash show" usage
+'
+
+test_expect_failure 'usage for subcommands should emit subcommand usage' '
+	test_expect_code 129 git stash push -h >usage &&
+	grep -F "usage: git stash [push" usage
+'
+
 diff_cmp () {
 	for i in "$1" "$2"
 	do
@@ -286,6 +305,17 @@ test_expect_success 'stash --no-keep-index' '
 	git add file2 &&
 	git stash --no-keep-index &&
 	test bar,bar2 = $(cat file),$(cat file2)
+'
+
+test_expect_success 'stash --staged' '
+	echo bar3 >file &&
+	echo bar4 >file2 &&
+	git add file2 &&
+	git stash --staged &&
+	test bar3,bar2 = $(cat file),$(cat file2) &&
+	git reset --hard &&
+	git stash pop &&
+	test bar,bar4 = $(cat file),$(cat file2)
 '
 
 test_expect_success 'dont assume push with non-option args' '
@@ -1305,6 +1335,88 @@ test_expect_success 'stash -c stash.useBuiltin=false warning ' '
 	test_must_be_empty err &&
 	env GIT_TEST_STASH_USE_BUILTIN=true git stash 2>err &&
 	test_must_be_empty err
+'
+
+test_expect_success 'git stash succeeds despite directory/file change' '
+	test_create_repo directory_file_switch_v1 &&
+	(
+		cd directory_file_switch_v1 &&
+		test_commit init &&
+
+		test_write_lines this file has some words >filler &&
+		git add filler &&
+		git commit -m filler &&
+
+		git rm filler &&
+		mkdir filler &&
+		echo contents >filler/file &&
+		git stash push
+	)
+'
+
+test_expect_success 'git stash can pop file -> directory saved changes' '
+	test_create_repo directory_file_switch_v2 &&
+	(
+		cd directory_file_switch_v2 &&
+		test_commit init &&
+
+		test_write_lines this file has some words >filler &&
+		git add filler &&
+		git commit -m filler &&
+
+		git rm filler &&
+		mkdir filler &&
+		echo contents >filler/file &&
+		cp filler/file expect &&
+		git stash push --include-untracked &&
+		git stash apply --index &&
+		test_cmp expect filler/file
+	)
+'
+
+test_expect_success 'git stash can pop directory -> file saved changes' '
+	test_create_repo directory_file_switch_v3 &&
+	(
+		cd directory_file_switch_v3 &&
+		test_commit init &&
+
+		mkdir filler &&
+		test_write_lines some words >filler/file1 &&
+		test_write_lines and stuff >filler/file2 &&
+		git add filler &&
+		git commit -m filler &&
+
+		git rm -rf filler &&
+		echo contents >filler &&
+		cp filler expect &&
+		git stash push --include-untracked &&
+		git stash apply --index &&
+		test_cmp expect filler
+	)
+'
+
+test_expect_success 'restore untracked files even when we hit conflicts' '
+	git init restore_untracked_after_conflict &&
+	(
+		cd restore_untracked_after_conflict &&
+
+		echo hi >a &&
+		echo there >b &&
+		git add . &&
+		git commit -m first &&
+		echo hello >a &&
+		echo something >c &&
+
+		git stash push --include-untracked &&
+
+		echo conflict >a &&
+		git add a &&
+		git commit -m second &&
+
+		test_must_fail git stash pop &&
+
+		test_path_is_file c
+	)
 '
 
 test_done

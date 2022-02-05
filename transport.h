@@ -262,7 +262,9 @@ struct transport_ls_refs_options {
 	 */
 	char *unborn_head_target;
 };
-#define TRANSPORT_LS_REFS_OPTIONS_INIT { STRVEC_INIT }
+#define TRANSPORT_LS_REFS_OPTIONS_INIT { \
+	.ref_prefixes = STRVEC_INIT, \
+}
 
 /*
  * Retrieve refs from a remote.
@@ -277,7 +279,19 @@ const struct ref *transport_get_remote_refs(struct transport *transport,
  */
 const struct git_hash_algo *transport_get_hash_algo(struct transport *transport);
 int transport_fetch_refs(struct transport *transport, struct ref *refs);
-void transport_unlock_pack(struct transport *transport);
+
+/*
+ * If this flag is set, unlocking will avoid to call non-async-signal-safe
+ * functions. This will necessarily leave behind some data structures which
+ * cannot be cleaned up.
+ */
+#define TRANSPORT_UNLOCK_PACK_IN_SIGNAL_HANDLER (1 << 0)
+
+/*
+ * Unlock all packfiles locked by the transport.
+ */
+void transport_unlock_pack(struct transport *transport, unsigned int flags);
+
 int transport_disconnect(struct transport *transport);
 char *transport_anonymize_url(const char *url);
 void transport_take_over(struct transport *transport,

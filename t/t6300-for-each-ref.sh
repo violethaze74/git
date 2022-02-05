@@ -5,9 +5,6 @@
 
 test_description='for-each-ref test'
 
-GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=master
-export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
-
 . ./test-lib.sh
 . "$TEST_DIRECTORY"/lib-gpg.sh
 . "$TEST_DIRECTORY"/lib-terminal.sh
@@ -59,18 +56,25 @@ test_atom() {
 	# Automatically test "contents:size" atom after testing "contents"
 	if test "$2" = "contents"
 	then
-		case $(git cat-file -t "$ref") in
-		tag)
-			# We cannot use $3 as it expects sanitize_pgp to run
-			expect=$(git cat-file tag $ref | tail -n +6 | wc -c) ;;
-		tree | blob)
-			expect='' ;;
-		commit)
-			expect=$(printf '%s' "$3" | wc -c) ;;
-		esac
-		# Leave $expect unquoted to lose possible leading whitespaces
-		echo $expect >expected
+		# for commit leg, $3 is changed there
+		expect=$(printf '%s' "$3" | wc -c)
 		test_expect_${4:-success} $PREREQ "basic atom: $1 contents:size" '
+			type=$(git cat-file -t "$ref") &&
+			case $type in
+			tag)
+				# We cannot use $3 as it expects sanitize_pgp to run
+				git cat-file tag $ref >out &&
+				expect=$(tail -n +6 out | wc -c) &&
+				rm -f out ;;
+			tree | blob)
+				expect="" ;;
+			commit)
+				: "use the calculated expect" ;;
+			*)
+				BUG "unknown object type" ;;
+			esac &&
+			# Leave $expect unquoted to lose possible leading whitespaces
+			echo $expect >expected &&
 			git for-each-ref --format="%(contents:size)" "$ref" >actual &&
 			test_cmp expected actual
 		'
@@ -410,6 +414,11 @@ EOF
 test_expect_success 'Verify descending sort' '
 	git for-each-ref --format="%(refname)" --sort=-refname >actual &&
 	test_cmp expected actual
+'
+
+test_expect_success 'Give help even with invalid sort atoms' '
+	test_expect_code 129 git for-each-ref --sort=bogus -h >actual 2>&1 &&
+	grep "^usage: git for-each-ref" actual
 '
 
 cat >expected <<\EOF
@@ -943,10 +952,7 @@ test_expect_success '%(raw) with --shell and --sort=raw must fail' '
 '
 
 test_expect_success '%(raw:size) with --shell' '
-	git for-each-ref --format="%(raw:size)" | while read line
-	do
-		echo "'\''$line'\''" >>expect
-	done &&
+	git for-each-ref --format="%(raw:size)" | sed "s/^/$SQ/;s/$/$SQ/" >expect &&
 	git for-each-ref --format="%(raw:size)" --shell >actual &&
 	test_cmp expect actual
 '
@@ -1007,6 +1013,27 @@ test_expect_success 'equivalent sorts fall back on refname' '
 	EOF
 	git for-each-ref \
 		--format="%(taggerdate:unix) %(taggeremail) %(refname)" \
+		--sort=taggerdate \
+		"refs/tags/multi-*" >actual &&
+	test_cmp expected actual
+'
+
+test_expect_success '--no-sort cancels the previous sort keys' '
+	cat >expected <<-\EOF &&
+	100000 <user1@example.com> refs/tags/multi-ref1-100000-user1
+	100000 <user2@example.com> refs/tags/multi-ref1-100000-user2
+	100000 <user1@example.com> refs/tags/multi-ref2-100000-user1
+	100000 <user2@example.com> refs/tags/multi-ref2-100000-user2
+	200000 <user1@example.com> refs/tags/multi-ref1-200000-user1
+	200000 <user2@example.com> refs/tags/multi-ref1-200000-user2
+	200000 <user1@example.com> refs/tags/multi-ref2-200000-user1
+	200000 <user2@example.com> refs/tags/multi-ref2-200000-user2
+	EOF
+	git for-each-ref \
+		--format="%(taggerdate:unix) %(taggeremail) %(refname)" \
+		--sort=-refname \
+		--sort=taggeremail \
+		--no-sort \
 		--sort=taggerdate \
 		"refs/tags/multi-*" >actual &&
 	test_cmp expected actual
@@ -1308,7 +1335,7 @@ test_expect_success ':remotename and :remoteref' '
 			echo "${pair#*=}" >expect &&
 			git for-each-ref --format="${pair%=*}" \
 				refs/heads/main >actual &&
-			test_cmp expect actual
+			test_cmp expect actual || exit 1
 		done &&
 		git branch push-simple &&
 		git config branch.push-simple.pushRemote from &&

@@ -261,7 +261,7 @@ static int write_pc_item_to_fd(struct parallel_checkout_item *pc_item, int fd,
 	struct stream_filter *filter;
 	struct strbuf buf = STRBUF_INIT;
 	char *blob;
-	unsigned long size;
+	size_t size;
 	ssize_t wrote;
 
 	/* Sanity check */
@@ -603,8 +603,7 @@ static void gather_results_from_workers(struct pc_worker *workers,
 				continue;
 
 			if (pfd->revents & POLLIN) {
-				int len = packet_read(pfd->fd, NULL, NULL,
-						      packet_buffer,
+				int len = packet_read(pfd->fd, packet_buffer,
 						      sizeof(packet_buffer), 0);
 
 				if (len < 0) {

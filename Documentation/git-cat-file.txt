@@ -9,8 +9,14 @@ git-cat-file - Provide content or type and size information for repository objec
 SYNOPSIS
 --------
 [verse]
-'git cat-file' (-t [--allow-unknown-type]| -s [--allow-unknown-type]| -e | -p | <type> | --textconv | --filters ) [--path=<path>] <object>
-'git cat-file' (--batch[=<format>] | --batch-check[=<format>]) [ --textconv | --filters ] [--follow-symlinks]
+'git cat-file' <type> <object>
+'git cat-file' (-e | -p) <object>
+'git cat-file' (-t | -s) [--allow-unknown-type] <object>
+'git cat-file' (--batch | --batch-check) [--batch-all-objects]
+	     [--buffer] [--follow-symlinks] [--unordered]
+	     [--textconv | --filters]
+'git cat-file' (--textconv | --filters)
+	     [<rev>:<path|tree-ish> | --path=<path|tree-ish> <rev>]
 
 DESCRIPTION
 -----------
@@ -94,8 +100,10 @@ OPTIONS
 	Instead of reading a list of objects on stdin, perform the
 	requested batch operation on all objects in the repository and
 	any alternate object stores (not just reachable objects).
-	Requires `--batch` or `--batch-check` be specified. Note that
-	the objects are visited in order sorted by their hashes.
+	Requires `--batch` or `--batch-check` be specified. By default,
+	the objects are visited in order sorted by their hashes; see
+	also `--unordered` below. Objects are presented as-is, without
+	respecting the "replace" mechanism of linkgit:git-replace[1].
 
 --buffer::
 	Normally batch output is flushed after each object is output, so

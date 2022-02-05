@@ -26,7 +26,8 @@ struct ref_store *maybe_debug_wrap_ref_store(const char *gitdir, struct ref_stor
 	be_copy->name = store->be->name;
 	trace_printf_key(&trace_refs, "ref_store for %s\n", gitdir);
 	res->refs = store;
-	base_ref_store_init((struct ref_store *)res, be_copy);
+	base_ref_store_init((struct ref_store *)res, store->repo, gitdir,
+			    be_copy);
 	return (struct ref_store *)res;
 }
 
@@ -47,7 +48,8 @@ static int debug_transaction_prepare(struct ref_store *refs,
 	transaction->ref_store = drefs->refs;
 	res = drefs->refs->be->transaction_prepare(drefs->refs, transaction,
 						   err);
-	trace_printf_key(&trace_refs, "transaction_prepare: %d\n", res);
+	trace_printf_key(&trace_refs, "transaction_prepare: %d \"%s\"\n", res,
+			 err->buf);
 	return res;
 }
 
@@ -239,15 +241,14 @@ debug_ref_iterator_begin(struct ref_store *ref_store, const char *prefix,
 
 static int debug_read_raw_ref(struct ref_store *ref_store, const char *refname,
 			      struct object_id *oid, struct strbuf *referent,
-			      unsigned int *type)
+			      unsigned int *type, int *failure_errno)
 {
 	struct debug_ref_store *drefs = (struct debug_ref_store *)ref_store;
 	int res = 0;
 
 	oidcpy(oid, null_oid());
-	errno = 0;
 	res = drefs->refs->be->read_raw_ref(drefs->refs, refname, oid, referent,
-					    type);
+					    type, failure_errno);
 
 	if (res == 0) {
 		trace_printf_key(&trace_refs, "read_raw_ref: %s: %s (=> %s) type %x: %d\n",
@@ -255,7 +256,7 @@ static int debug_read_raw_ref(struct ref_store *ref_store, const char *refname,
 	} else {
 		trace_printf_key(&trace_refs,
 				 "read_raw_ref: %s: %d (errno %d)\n", refname,
-				 res, errno);
+				 res, *failure_errno);
 	}
 	return res;
 }
@@ -285,6 +286,7 @@ static int debug_print_reflog_ent(struct object_id *old_oid,
 	int ret;
 	char o[GIT_MAX_HEXSZ + 1] = "null";
 	char n[GIT_MAX_HEXSZ + 1] = "null";
+	char *msgend = strchrnul(msg, '\n');
 	if (old_oid)
 		oid_to_hex_r(o, old_oid);
 	if (new_oid)
@@ -292,8 +294,10 @@ static int debug_print_reflog_ent(struct object_id *old_oid,
 
 	ret = dbg->fn(old_oid, new_oid, committer, timestamp, tz, msg,
 		      dbg->cb_data);
-	trace_printf_key(&trace_refs, "reflog_ent %s (ret %d): %s -> %s, %s %ld \"%s\"\n",
-		dbg->refname, ret, o, n, committer, (long int)timestamp, msg);
+	trace_printf_key(&trace_refs,
+			 "reflog_ent %s (ret %d): %s -> %s, %s %ld \"%.*s\"\n",
+			 dbg->refname, ret, o, n, committer,
+			 (long int)timestamp, (int)(msgend - msg), msg);
 	return ret;
 }
 
@@ -340,11 +344,10 @@ static int debug_reflog_exists(struct ref_store *ref_store, const char *refname)
 }
 
 static int debug_create_reflog(struct ref_store *ref_store, const char *refname,
-			       int force_create, struct strbuf *err)
+			       struct strbuf *err)
 {
 	struct debug_ref_store *drefs = (struct debug_ref_store *)ref_store;
-	int res = drefs->refs->be->create_reflog(drefs->refs, refname,
-						 force_create, err);
+	int res = drefs->refs->be->create_reflog(drefs->refs, refname, err);
 	trace_printf_key(&trace_refs, "create_reflog: %s: %d\n", refname, res);
 	return res;
 }
@@ -365,8 +368,8 @@ struct debug_reflog_expiry_should_prune {
 };
 
 static void debug_reflog_expiry_prepare(const char *refname,
-				    const struct object_id *oid,
-				    void *cb_data)
+					const struct object_id *oid,
+					void *cb_data)
 {
 	struct debug_reflog_expiry_should_prune *prune = cb_data;
 	trace_printf_key(&trace_refs, "reflog_expire_prepare: %s\n", refname);
@@ -392,7 +395,7 @@ static void debug_reflog_expiry_cleanup(void *cb_data)
 }
 
 static int debug_reflog_expire(struct ref_store *ref_store, const char *refname,
-			       const struct object_id *oid, unsigned int flags,
+			       unsigned int flags,
 			       reflog_expiry_prepare_fn prepare_fn,
 			       reflog_expiry_should_prune_fn should_prune_fn,
 			       reflog_expiry_cleanup_fn cleanup_fn,
@@ -405,7 +408,7 @@ static int debug_reflog_expire(struct ref_store *ref_store, const char *refname,
 		.should_prune = should_prune_fn,
 		.cb_data = policy_cb_data,
 	};
-	int res = drefs->refs->be->reflog_expire(drefs->refs, refname, oid,
+	int res = drefs->refs->be->reflog_expire(drefs->refs, refname,
 						 flags, &debug_reflog_expiry_prepare,
 						 &debug_reflog_expiry_should_prune_fn,
 						 &debug_reflog_expiry_cleanup,

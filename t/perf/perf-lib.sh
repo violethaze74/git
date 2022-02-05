@@ -27,6 +27,10 @@ TEST_NO_MALLOC_CHECK=t
 
 . ../test-lib.sh
 
+unset GIT_CONFIG_NOSYSTEM
+GIT_CONFIG_SYSTEM="$TEST_DIRECTORY/perf/config"
+export GIT_CONFIG_SYSTEM
+
 if test -n "$GIT_TEST_INSTALLED" -a -z "$PERF_SET_GIT_TEST_INSTALLED"
 then
 	error "Do not use GIT_TEST_INSTALLED with the perf tests.
@@ -157,7 +161,7 @@ test_run_perf_ () {
 	test_cleanup=:
 	test_export_="test_cleanup"
 	export test_cleanup test_export_
-	"$GTIME" -f "%E %U %S" -o test_time.$i "$SHELL" -c '
+	"$GTIME" -f "%E %U %S" -o test_time.$i "$TEST_SHELL_PATH" -c '
 . '"$TEST_DIRECTORY"/test-lib-functions.sh'
 test_export () {
 	test_export_="$test_export_ $*"
@@ -230,6 +234,7 @@ test_perf_ () {
 		test_ok_ "$1"
 	fi
 	"$TEST_DIRECTORY"/perf/min_time.perl test_time.* >"$base".result
+	rm test_time.*
 }
 
 test_perf () {

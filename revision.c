@@ -44,10 +44,15 @@ static inline int want_ancestry(const struct rev_info *revs);
 
 void show_object_with_name(FILE *out, struct object *obj, const char *name)
 {
-	const char *p;
-
 	fprintf(out, "%s ", oid_to_hex(&obj->oid));
-	for (p = name; *p && *p != '\n'; p++)
+	/*
+	 * This "for (const char *p = ..." is made as a first step towards
+	 * making use of such declarations elsewhere in our codebase.  If
+	 * it causes compilation problems on your platform, please report
+	 * it to the Git mailing list at git@vger.kernel.org. In the meantime,
+	 * adding -std=gnu99 to CFLAGS may help if you are with older GCC.
+	 */
+	for (const char *p = name; *p && *p != '\n'; p++)
 		fputc(*p, out);
 	fputc('\n', out);
 }
@@ -249,7 +254,7 @@ struct commit_stack {
 	struct commit **items;
 	size_t nr, alloc;
 };
-#define COMMIT_STACK_INIT { NULL, 0, 0 }
+#define COMMIT_STACK_INIT { 0 }
 
 static void commit_stack_push(struct commit_stack *stack, struct commit *commit)
 {
@@ -360,20 +365,18 @@ static struct object *get_reference(struct rev_info *revs, const char *name,
 				    unsigned int flags)
 {
 	struct object *object;
+	struct commit *commit;
 
 	/*
-	 * If the repository has commit graphs, repo_parse_commit() avoids
-	 * reading the object buffer, so use it whenever possible.
+	 * If the repository has commit graphs, we try to opportunistically
+	 * look up the object ID in those graphs. Like this, we can avoid
+	 * parsing commit data from disk.
 	 */
-	if (oid_object_info(revs->repo, oid, NULL) == OBJ_COMMIT) {
-		struct commit *c = lookup_commit(revs->repo, oid);
-		if (!repo_parse_commit(revs->repo, c))
-			object = (struct object *) c;
-		else
-			object = NULL;
-	} else {
+	commit = lookup_commit_in_graph(revs->repo, oid);
+	if (commit)
+		object = &commit->object;
+	else
 		object = parse_object(revs->repo, oid);
-	}
 
 	if (!object) {
 		if (revs->ignore_missing)
@@ -1534,7 +1537,7 @@ static int handle_one_ref(const char *path, const struct object_id *oid,
 
 	object = get_reference(cb->all_revs, path, oid, cb->all_flags);
 	add_rev_cmdline(cb->all_revs, object, path, REV_CMD_REF, cb->all_flags);
-	add_pending_oid(cb->all_revs, path, oid, cb->all_flags);
+	add_pending_object(cb->all_revs, object, path);
 	return 0;
 }
 
@@ -2297,11 +2300,11 @@ static int handle_revision_opt(struct rev_info *revs, int argc, const char **arg
 		revs->left_only = 1;
 	} else if (!strcmp(arg, "--right-only")) {
 		if (revs->left_only)
-			die("--right-only is incompatible with --left-only");
+			die(_("options '%s' and '%s' cannot be used together"), "--right-only", "--left-only");
 		revs->right_only = 1;
 	} else if (!strcmp(arg, "--cherry")) {
 		if (revs->left_only)
-			die("--cherry is incompatible with --left-only");
+			die(_("options '%s' and '%s' cannot be used together"), "--cherry", "--left-only");
 		revs->cherry_mark = 1;
 		revs->right_only = 1;
 		revs->max_parents = 1;
@@ -2310,12 +2313,12 @@ static int handle_revision_opt(struct rev_info *revs, int argc, const char **arg
 		revs->count = 1;
 	} else if (!strcmp(arg, "--cherry-mark")) {
 		if (revs->cherry_pick)
-			die("--cherry-mark is incompatible with --cherry-pick");
+			die(_("options '%s' and '%s' cannot be used together"), "--cherry-mark", "--cherry-pick");
 		revs->cherry_mark = 1;
 		revs->limited = 1; /* needs limit_list() */
 	} else if (!strcmp(arg, "--cherry-pick")) {
 		if (revs->cherry_mark)
-			die("--cherry-pick is incompatible with --cherry-mark");
+			die(_("options '%s' and '%s' cannot be used together"), "--cherry-pick", "--cherry-mark");
 		revs->cherry_pick = 1;
 		revs->limited = 1;
 	} else if (!strcmp(arg, "--objects")) {
@@ -2495,7 +2498,7 @@ static int handle_revision_opt(struct rev_info *revs, int argc, const char **arg
 	} else if (!strcmp(arg, "--all-match")) {
 		revs->grep_filter.all_match = 1;
 	} else if (!strcmp(arg, "--invert-grep")) {
-		revs->invert_grep = 1;
+		revs->grep_filter.no_body_match = 1;
 	} else if ((argcount = parse_long_opt("encoding", argv, &optarg))) {
 		if (strcmp(optarg, "none"))
 			git_log_output_encoding = xstrdup(optarg);
@@ -2521,7 +2524,7 @@ static int handle_revision_opt(struct rev_info *revs, int argc, const char **arg
 		return opts;
 	}
 	if (revs->graph && revs->track_linear)
-		die("--show-linear-break and --graph are incompatible");
+		die(_("options '%s' and '%s' cannot be used together"), "--show-linear-break", "--graph");
 
 	return 1;
 }
@@ -2546,7 +2549,7 @@ static int for_each_bisect_ref(struct ref_store *refs, each_ref_fn fn,
 	struct strbuf bisect_refs = STRBUF_INIT;
 	int status;
 	strbuf_addf(&bisect_refs, "refs/bisect/%s", term);
-	status = refs_for_each_fullref_in(refs, bisect_refs.buf, fn, cb_data, 0);
+	status = refs_for_each_fullref_in(refs, bisect_refs.buf, fn, cb_data);
 	strbuf_release(&bisect_refs);
 	return status;
 }
@@ -2561,8 +2564,7 @@ static int for_each_good_bisect_ref(struct ref_store *refs, each_ref_fn fn, void
 	return for_each_bisect_ref(refs, fn, cb_data, term_good);
 }
 
-static int handle_revision_pseudo_opt(const char *submodule,
-				      struct rev_info *revs,
+static int handle_revision_pseudo_opt(struct rev_info *revs,
 				      const char **argv, int *flags)
 {
 	const char *arg = argv[0];
@@ -2570,7 +2572,7 @@ static int handle_revision_pseudo_opt(const char *submodule,
 	struct ref_store *refs;
 	int argcount;
 
-	if (submodule) {
+	if (revs->repo != the_repository) {
 		/*
 		 * We need some something like get_submodule_worktrees()
 		 * before we can go through all worktrees of a submodule,
@@ -2579,9 +2581,8 @@ static int handle_revision_pseudo_opt(const char *submodule,
 		 */
 		if (!revs->single_worktree)
 			BUG("--single-worktree cannot be used together with submodule");
-		refs = get_submodule_ref_store(submodule);
-	} else
-		refs = get_main_ref_store(revs->repo);
+	}
+	refs = get_main_ref_store(revs->repo);
 
 	/*
 	 * NOTE!
@@ -2651,16 +2652,17 @@ static int handle_revision_pseudo_opt(const char *submodule,
 	} else if (!strcmp(arg, "--not")) {
 		*flags ^= UNINTERESTING | BOTTOM;
 	} else if (!strcmp(arg, "--no-walk")) {
-		revs->no_walk = REVISION_WALK_NO_WALK_SORTED;
+		revs->no_walk = 1;
 	} else if (skip_prefix(arg, "--no-walk=", &optarg)) {
 		/*
 		 * Detached form ("--no-walk X" as opposed to "--no-walk=X")
 		 * not allowed, since the argument is optional.
 		 */
+		revs->no_walk = 1;
 		if (!strcmp(optarg, "sorted"))
-			revs->no_walk = REVISION_WALK_NO_WALK_SORTED;
+			revs->unsorted_input = 0;
 		else if (!strcmp(optarg, "unsorted"))
-			revs->no_walk = REVISION_WALK_NO_WALK_UNSORTED;
+			revs->unsorted_input = 1;
 		else
 			return error("invalid argument to --no-walk");
 	} else if (!strcmp(arg, "--do-walk")) {
@@ -2699,11 +2701,7 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 {
 	int i, flags, left, seen_dashdash, revarg_opt;
 	struct strvec prune_data = STRVEC_INIT;
-	const char *submodule = NULL;
 	int seen_end_of_options = 0;
-
-	if (opt)
-		submodule = opt->submodule;
 
 	/* First, search for "--" */
 	if (opt && opt->assume_dashdash) {
@@ -2733,7 +2731,7 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 		if (!seen_end_of_options && *arg == '-') {
 			int opts;
 
-			opts = handle_revision_pseudo_opt(submodule,
+			opts = handle_revision_pseudo_opt(
 						revs, argv + i,
 						&flags);
 			if (opts > 0) {
@@ -2869,24 +2867,24 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 	compile_grep_patterns(&revs->grep_filter);
 
 	if (revs->reverse && revs->reflog_info)
-		die("cannot combine --reverse with --walk-reflogs");
+		die(_("options '%s' and '%s' cannot be used together"), "--reverse", "--walk-reflogs");
 	if (revs->reflog_info && revs->limited)
 		die("cannot combine --walk-reflogs with history-limiting options");
 	if (revs->rewrite_parents && revs->children.name)
-		die("cannot combine --parents and --children");
+		die(_("options '%s' and '%s' cannot be used together"), "--parents", "--children");
 
 	/*
 	 * Limitations on the graph functionality
 	 */
 	if (revs->reverse && revs->graph)
-		die("cannot combine --reverse with --graph");
+		die(_("options '%s' and '%s' cannot be used together"), "--reverse", "--graph");
 
 	if (revs->reflog_info && revs->graph)
-		die("cannot combine --walk-reflogs with --graph");
+		die(_("options '%s' and '%s' cannot be used together"), "--walk-reflogs", "--graph");
 	if (revs->no_walk && revs->graph)
-		die("cannot combine --no-walk with --graph");
+		die(_("options '%s' and '%s' cannot be used together"), "--no-walk", "--graph");
 	if (!revs->reflog_info && revs->grep_filter.use_reflog_filter)
-		die("cannot use --grep-reflog without --walk-reflogs");
+		die(_("the option '%s' requires '%s'"), "--grep-reflog", "--walk-reflogs");
 
 	if (revs->line_level_traverse &&
 	    (revs->diffopt.output_format & ~(DIFF_FORMAT_PATCH | DIFF_FORMAT_NO_OUTPUT)))
@@ -3584,7 +3582,7 @@ int prepare_revision_walk(struct rev_info *revs)
 
 	if (!revs->reflog_info)
 		prepare_to_use_bloom_filter(revs);
-	if (revs->no_walk != REVISION_WALK_NO_WALK_UNSORTED)
+	if (!revs->unsorted_input)
 		commit_list_sort_by_date(&revs->commits);
 	if (revs->no_walk)
 		return 0;
@@ -3785,7 +3783,7 @@ static int commit_match(struct commit *commit, struct rev_info *opt)
 				     (char *)message, strlen(message));
 	strbuf_release(&buf);
 	unuse_commit_buffer(commit, message);
-	return opt->invert_grep ? !retval : retval;
+	return retval;
 }
 
 static inline int want_ancestry(const struct rev_info *revs)

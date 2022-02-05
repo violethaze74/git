@@ -95,9 +95,7 @@ static int create_file(const char *path)
 {
 	int fd;
 	path = get_mtime_path(path);
-	fd = open(path, O_CREAT | O_RDWR, 0644);
-	if (fd < 0)
-		die_errno(_("failed to create file %s"), path);
+	fd = xopen(path, O_CREAT | O_RDWR, 0644);
 	return fd;
 }
 
@@ -789,6 +787,17 @@ static int refresh(struct refresh_params *o, unsigned int flag)
 	setup_work_tree();
 	read_cache();
 	*o->has_errors |= refresh_cache(o->flags | flag);
+	if (has_racy_timestamp(&the_index)) {
+		/*
+		 * Even if nothing else has changed, updating the file
+		 * increases the chance that racy timestamps become
+		 * non-racy, helping future run-time performance.
+		 * We do that even in case of "errors" returned by
+		 * refresh_cache() as these are no actual errors.
+		 * cmd_status() does the same.
+		 */
+		active_cache_changed |= SOMETHING_CHANGED;
+	}
 	return 0;
 }
 

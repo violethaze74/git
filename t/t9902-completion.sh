@@ -5,9 +5,6 @@
 
 test_description='test bash completion'
 
-GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=master
-export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
-
 . ./lib-bash.sh
 
 complete ()
@@ -540,6 +537,15 @@ test_expect_success '__gitcomp - expand/narrow all negative options' '
 	EOF
 '
 
+test_expect_success '__gitcomp - equal skip' '
+	test_gitcomp "--option=" "--option=" <<-\EOF &&
+
+	EOF
+	test_gitcomp "option=" "option=" <<-\EOF
+
+	EOF
+'
+
 test_expect_success '__gitcomp - doesnt fail because of invalid variable name' '
 	__gitcomp "$invalid_variable_name"
 '
@@ -870,7 +876,7 @@ test_expect_success '__git_refs - unique remote branches for git checkout DWIMer
 		refs/remotes/remote/branch-in-remote
 	do
 		git update-ref $remote_ref main &&
-		test_when_finished "git update-ref -d $remote_ref"
+		test_when_finished "git update-ref -d $remote_ref" || return 1
 	done &&
 	(
 		cur= &&
@@ -1043,7 +1049,7 @@ test_expect_success '__git_refs - only matching refs - checkout DWIMery' '
 		refs/remotes/remote/branch-in-remote
 	do
 		git update-ref $remote_ref main &&
-		test_when_finished "git update-ref -d $remote_ref"
+		test_when_finished "git update-ref -d $remote_ref" || return 1
 	done &&
 	(
 		cur=mat &&
@@ -2139,6 +2145,9 @@ test_expect_success PERL 'send-email' '
 	--cover-from-description=Z
 	--cover-letter Z
 	EOF
+	test_completion "git send-email --val" <<-\EOF &&
+	--validate Z
+	EOF
 	test_completion "git send-email ma" "main "
 '
 
@@ -2377,6 +2386,12 @@ test_expect_success 'git clone --config= - value' '
 	test_completion "git clone --config=color.pager=" <<-\EOF
 	false Z
 	true Z
+	EOF
+'
+
+test_expect_success 'options with value' '
+	test_completion "git merge -X diff-algorithm=" <<-\EOF
+
 	EOF
 '
 

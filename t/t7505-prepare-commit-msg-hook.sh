@@ -16,7 +16,7 @@ test_expect_success 'set up commits for rebasing' '
 	test_commit rebase-b b bb &&
 	for i in $(test_seq 1 13)
 	do
-		test_commit rebase-$i c $i
+		test_commit rebase-$i c $i || return 1
 	done &&
 	git checkout main &&
 
@@ -250,7 +250,6 @@ test_rebase () {
 }
 
 test_rebase success
-test_have_prereq !REBASE_P || test_rebase success -p
 
 test_expect_success 'with hook (cherry-pick)' '
 	test_when_finished "git checkout -f main" &&

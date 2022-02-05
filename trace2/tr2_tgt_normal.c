@@ -232,7 +232,7 @@ static void fn_child_start_fl(const char *file, int line,
 	strbuf_addch(&buf_payload, ' ');
 	if (cmd->git_cmd)
 		strbuf_addstr(&buf_payload, "git ");
-	sq_append_quote_argv_pretty(&buf_payload, cmd->argv);
+	sq_append_quote_argv_pretty(&buf_payload, cmd->args.v);
 
 	normal_io_write_fl(file, line, &buf_payload);
 	strbuf_release(&buf_payload);
@@ -247,6 +247,19 @@ static void fn_child_exit_fl(const char *file, int line,
 
 	strbuf_addf(&buf_payload, "child_exit[%d] pid:%d code:%d elapsed:%.6f",
 		    cid, pid, code, elapsed);
+	normal_io_write_fl(file, line, &buf_payload);
+	strbuf_release(&buf_payload);
+}
+
+static void fn_child_ready_fl(const char *file, int line,
+			      uint64_t us_elapsed_absolute, int cid, int pid,
+			      const char *ready, uint64_t us_elapsed_child)
+{
+	struct strbuf buf_payload = STRBUF_INIT;
+	double elapsed = (double)us_elapsed_child / 1000000.0;
+
+	strbuf_addf(&buf_payload, "child_ready[%d] pid:%d ready:%s elapsed:%.6f",
+		    cid, pid, ready, elapsed);
 	normal_io_write_fl(file, line, &buf_payload);
 	strbuf_release(&buf_payload);
 }
@@ -330,6 +343,7 @@ struct tr2_tgt tr2_tgt_normal = {
 	fn_alias_fl,
 	fn_child_start_fl,
 	fn_child_exit_fl,
+	fn_child_ready_fl,
 	NULL, /* thread_start */
 	NULL, /* thread_exit */
 	fn_exec_fl,
