@@ -28,6 +28,7 @@
 #include "sparse-index.h"
 #include "csum-file.h"
 #include "promisor-remote.h"
+#include "hook.h"
 
 /* Mask for the name length in ce_flags in the on-disk index */
 
@@ -3009,6 +3010,9 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	    !is_null_oid(&istate->split_index->base_oid)) {
 		struct strbuf sb = STRBUF_INIT;
 
+		if (istate->sparse_index)
+			die(_("cannot write split index for a sparse index"));
+
 		err = write_link_extension(&sb, istate) < 0 ||
 			write_index_ext_header(f, eoie_c, CACHE_EXT_LINK,
 					       sb.len) < 0;
@@ -3150,7 +3154,7 @@ static int do_write_locked_index(struct index_state *istate, struct lock_file *l
 	else
 		ret = close_lock_file_gently(lock);
 
-	run_hook_le(NULL, "post-index-change",
+	run_hooks_l("post-index-change",
 			istate->updated_workdir ? "1" : "0",
 			istate->updated_skipworktree ? "1" : "0", NULL);
 	istate->updated_workdir = 0;

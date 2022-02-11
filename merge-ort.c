@@ -3060,6 +3060,10 @@ static int detect_and_process_renames(struct merge_options *opt,
 	trace2_region_enter("merge", "regular renames", opt->repo);
 	detection_run |= detect_regular_renames(opt, MERGE_SIDE1);
 	detection_run |= detect_regular_renames(opt, MERGE_SIDE2);
+	if (renames->needed_limit) {
+		renames->cached_pairs_valid_side = 0;
+		renames->redo_after_renames = 0;
+	}
 	if (renames->redo_after_renames && detection_run) {
 		int i, side;
 		struct diff_filepair *p;
@@ -4575,7 +4579,7 @@ static void merge_ort_internal(struct merge_options *opt,
 			       struct commit *h2,
 			       struct merge_result *result)
 {
-	struct commit_list *iter;
+	struct commit *next;
 	struct commit *merged_merge_bases;
 	const char *ancestor_name;
 	struct strbuf merge_base_abbrev = STRBUF_INIT;
@@ -4604,7 +4608,8 @@ static void merge_ort_internal(struct merge_options *opt,
 		ancestor_name = merge_base_abbrev.buf;
 	}
 
-	for (iter = merge_bases; iter; iter = iter->next) {
+	for (next = pop_commit(&merge_bases); next;
+	     next = pop_commit(&merge_bases)) {
 		const char *saved_b1, *saved_b2;
 		struct commit *prev = merged_merge_bases;
 
@@ -4621,7 +4626,7 @@ static void merge_ort_internal(struct merge_options *opt,
 		saved_b2 = opt->branch2;
 		opt->branch1 = "Temporary merge branch 1";
 		opt->branch2 = "Temporary merge branch 2";
-		merge_ort_internal(opt, NULL, prev, iter->item, result);
+		merge_ort_internal(opt, NULL, prev, next, result);
 		if (result->clean < 0)
 			return;
 		opt->branch1 = saved_b1;
@@ -4632,8 +4637,7 @@ static void merge_ort_internal(struct merge_options *opt,
 							 result->tree,
 							 "merged tree");
 		commit_list_insert(prev, &merged_merge_bases->parents);
-		commit_list_insert(iter->item,
-				   &merged_merge_bases->parents->next);
+		commit_list_insert(next, &merged_merge_bases->parents->next);
 
 		clear_or_reinit_internal_opts(opt->priv, 1);
 	}

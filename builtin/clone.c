@@ -32,6 +32,7 @@
 #include "connected.h"
 #include "packfile.h"
 #include "list-objects-filter-options.h"
+#include "hook.h"
 
 /*
  * Overall FIXMEs:
@@ -705,7 +706,7 @@ static int checkout(int submodule_progress)
 	if (write_locked_index(&the_index, &lock_file, COMMIT_LOCK))
 		die(_("unable to write new index file"));
 
-	err |= run_hook_le(NULL, "post-checkout", oid_to_hex(null_oid()),
+	err |= run_hooks_l("post-checkout", oid_to_hex(null_oid()),
 			   oid_to_hex(&oid), "1", NULL);
 
 	if (!err && (option_recurse_submodules.nr > 0)) {
@@ -862,7 +863,7 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 	const struct ref *refs, *remote_head;
 	struct ref *remote_head_points_at = NULL;
 	const struct ref *our_head_points_at;
-	struct ref *mapped_refs;
+	struct ref *mapped_refs = NULL;
 	const struct ref *ref;
 	struct strbuf key = STRBUF_INIT;
 	struct strbuf branch_top = STRBUF_INIT, reflog_msg = STRBUF_INIT;
@@ -1184,7 +1185,10 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 
 	refs = transport_get_remote_refs(transport, &transport_ls_refs_options);
 
-	if (refs) {
+	if (refs)
+		mapped_refs = wanted_peer_refs(refs, &remote->fetch);
+
+	if (mapped_refs) {
 		int hash_algo = hash_algo_by_ptr(transport_get_hash_algo(transport));
 
 		/*
@@ -1193,8 +1197,6 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 		 */
 		initialize_repository_version(hash_algo, 1);
 		repo_set_hash_algo(the_repository, hash_algo);
-
-		mapped_refs = wanted_peer_refs(refs, &remote->fetch);
 		/*
 		 * transport_get_remote_refs() may return refs with null sha-1
 		 * in mapped_refs (see struct transport->get_refs_list
@@ -1240,7 +1242,6 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 					option_branch, remote_name);
 
 		warning(_("You appear to have cloned an empty repository."));
-		mapped_refs = NULL;
 		our_head_points_at = NULL;
 		remote_head_points_at = NULL;
 		remote_head = NULL;
@@ -1271,7 +1272,7 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 
 	if (is_local)
 		clone_local(path, git_dir);
-	else if (refs && complete_refs_before_fetch) {
+	else if (mapped_refs && complete_refs_before_fetch) {
 		if (transport_fetch_refs(transport, mapped_refs))
 			die(_("remote transport reported error"));
 	}
