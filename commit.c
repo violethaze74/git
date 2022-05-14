@@ -249,6 +249,16 @@ int for_each_commit_graft(each_commit_graft_fn fn, void *cb_data)
 	return ret;
 }
 
+void reset_commit_grafts(struct repository *r)
+{
+	int i;
+
+	for (i = 0; i < r->parsed_objects->grafts_nr; i++)
+		free(r->parsed_objects->grafts[i]);
+	r->parsed_objects->grafts_nr = 0;
+	r->parsed_objects->commit_graft_prepared = 0;
+}
+
 struct commit_buffer {
 	void *buffer;
 	unsigned long size;
@@ -1568,7 +1578,7 @@ int commit_tree_extended(const char *msg, size_t msg_len,
 		goto out;
 	}
 
-	result = write_object_file(buffer.buf, buffer.len, commit_type, ret);
+	result = write_object_file(buffer.buf, buffer.len, OBJ_COMMIT, ret);
 out:
 	strbuf_release(&buffer);
 	return result;
@@ -1713,7 +1723,7 @@ size_t ignore_non_trailer(const char *buf, size_t len)
 }
 
 int run_commit_hook(int editor_is_used, const char *index_file,
-		    const char *name, ...)
+		    int *invoked_hook, const char *name, ...)
 {
 	struct run_hooks_opt opt = RUN_HOOKS_OPT_INIT;
 	va_list args;
@@ -1732,5 +1742,6 @@ int run_commit_hook(int editor_is_used, const char *index_file,
 		strvec_push(&opt.args, arg);
 	va_end(args);
 
+	opt.invoked_hook = invoked_hook;
 	return run_hooks_opt(name, &opt);
 }

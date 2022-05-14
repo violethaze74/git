@@ -338,9 +338,9 @@ static struct ref_cache *get_loose_ref_cache(struct files_ref_store *refs)
 	return refs->loose;
 }
 
-static int files_read_raw_ref(struct ref_store *ref_store, const char *refname,
-			      struct object_id *oid, struct strbuf *referent,
-			      unsigned int *type, int *failure_errno)
+static int read_ref_internal(struct ref_store *ref_store, const char *refname,
+			     struct object_id *oid, struct strbuf *referent,
+			     unsigned int *type, int *failure_errno, int skip_packed_refs)
 {
 	struct files_ref_store *refs =
 		files_downcast(ref_store, REF_STORE_READ, "read_raw_ref");
@@ -381,7 +381,7 @@ stat_ref:
 	if (lstat(path, &st) < 0) {
 		int ignore_errno;
 		myerr = errno;
-		if (myerr != ENOENT)
+		if (myerr != ENOENT || skip_packed_refs)
 			goto out;
 		if (refs_read_raw_ref(refs->packed_ref_store, refname, oid,
 				      referent, type, &ignore_errno)) {
@@ -425,7 +425,8 @@ stat_ref:
 		 * ref is supposed to be, there could still be a
 		 * packed ref:
 		 */
-		if (refs_read_raw_ref(refs->packed_ref_store, refname, oid,
+		if (skip_packed_refs ||
+		    refs_read_raw_ref(refs->packed_ref_store, refname, oid,
 				      referent, type, &ignore_errno)) {
 			myerr = EISDIR;
 			goto out;
@@ -468,6 +469,27 @@ out:
 	strbuf_release(&sb_contents);
 	errno = 0;
 	return ret;
+}
+
+static int files_read_raw_ref(struct ref_store *ref_store, const char *refname,
+			      struct object_id *oid, struct strbuf *referent,
+			      unsigned int *type, int *failure_errno)
+{
+	return read_ref_internal(ref_store, refname, oid, referent, type, failure_errno, 0);
+}
+
+static int files_read_symbolic_ref(struct ref_store *ref_store, const char *refname,
+				   struct strbuf *referent)
+{
+	struct object_id oid;
+	int failure_errno, ret;
+	unsigned int type;
+
+	ret = read_ref_internal(ref_store, refname, &oid, referent, &type, &failure_errno, 1);
+	if (ret)
+		return ret;
+
+	return !(type & REF_ISSYMREF);
 }
 
 int parse_loose_ref_contents(const char *buf, struct object_id *oid,
@@ -800,9 +822,9 @@ static int files_ref_iterator_abort(struct ref_iterator *ref_iterator)
 }
 
 static struct ref_iterator_vtable files_ref_iterator_vtable = {
-	files_ref_iterator_advance,
-	files_ref_iterator_peel,
-	files_ref_iterator_abort
+	.advance = files_ref_iterator_advance,
+	.peel = files_ref_iterator_peel,
+	.abort = files_ref_iterator_abort,
 };
 
 static struct ref_iterator *files_ref_iterator_begin(
@@ -1777,6 +1799,7 @@ static int write_ref_to_lockfile(struct ref_lock *lock,
 	fd = get_lock_file_fd(&lock->lk);
 	if (write_in_full(fd, oid_to_hex(oid), the_hash_algo->hexsz) < 0 ||
 	    write_in_full(fd, &term, 1) < 0 ||
+	    fsync_component(FSYNC_COMPONENT_REFERENCE, get_lock_file_fd(&lock->lk)) < 0 ||
 	    close_ref_gently(lock) < 0) {
 		strbuf_addf(err,
 			    "couldn't write '%s'", get_lock_file_path(&lock->lk));
@@ -2199,9 +2222,9 @@ static int files_reflog_iterator_abort(struct ref_iterator *ref_iterator)
 }
 
 static struct ref_iterator_vtable files_reflog_iterator_vtable = {
-	files_reflog_iterator_advance,
-	files_reflog_iterator_peel,
-	files_reflog_iterator_abort
+	.advance = files_reflog_iterator_advance,
+	.peel = files_reflog_iterator_peel,
+	.abort = files_reflog_iterator_abort,
 };
 
 static struct ref_iterator *reflog_iterator_begin(struct ref_store *ref_store,
@@ -3257,29 +3280,30 @@ static int files_init_db(struct ref_store *ref_store, struct strbuf *err)
 }
 
 struct ref_storage_be refs_be_files = {
-	NULL,
-	"files",
-	files_ref_store_create,
-	files_init_db,
-	files_transaction_prepare,
-	files_transaction_finish,
-	files_transaction_abort,
-	files_initial_transaction_commit,
+	.next = NULL,
+	.name = "files",
+	.init = files_ref_store_create,
+	.init_db = files_init_db,
+	.transaction_prepare = files_transaction_prepare,
+	.transaction_finish = files_transaction_finish,
+	.transaction_abort = files_transaction_abort,
+	.initial_transaction_commit = files_initial_transaction_commit,
 
-	files_pack_refs,
-	files_create_symref,
-	files_delete_refs,
-	files_rename_ref,
-	files_copy_ref,
+	.pack_refs = files_pack_refs,
+	.create_symref = files_create_symref,
+	.delete_refs = files_delete_refs,
+	.rename_ref = files_rename_ref,
+	.copy_ref = files_copy_ref,
 
-	files_ref_iterator_begin,
-	files_read_raw_ref,
+	.iterator_begin = files_ref_iterator_begin,
+	.read_raw_ref = files_read_raw_ref,
+	.read_symbolic_ref = files_read_symbolic_ref,
 
-	files_reflog_iterator_begin,
-	files_for_each_reflog_ent,
-	files_for_each_reflog_ent_reverse,
-	files_reflog_exists,
-	files_create_reflog,
-	files_delete_reflog,
-	files_reflog_expire
+	.reflog_iterator_begin = files_reflog_iterator_begin,
+	.for_each_reflog_ent = files_for_each_reflog_ent,
+	.for_each_reflog_ent_reverse = files_for_each_reflog_ent_reverse,
+	.reflog_exists = files_reflog_exists,
+	.create_reflog = files_create_reflog,
+	.delete_reflog = files_delete_reflog,
+	.reflog_expire = files_reflog_expire
 };

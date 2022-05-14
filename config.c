@@ -6,6 +6,7 @@
  *
  */
 #include "cache.h"
+#include "date.h"
 #include "branch.h"
 #include "config.h"
 #include "environment.h"
@@ -21,6 +22,7 @@
 #include "dir.h"
 #include "color.h"
 #include "refs.h"
+#include "worktree.h"
 
 struct config_source {
 	struct config_source *prev;
@@ -1321,6 +1323,80 @@ static int git_parse_maybe_bool_text(const char *value)
 	return -1;
 }
 
+static const struct fsync_component_name {
+	const char *name;
+	enum fsync_component component_bits;
+} fsync_component_names[] = {
+	{ "loose-object", FSYNC_COMPONENT_LOOSE_OBJECT },
+	{ "pack", FSYNC_COMPONENT_PACK },
+	{ "pack-metadata", FSYNC_COMPONENT_PACK_METADATA },
+	{ "commit-graph", FSYNC_COMPONENT_COMMIT_GRAPH },
+	{ "index", FSYNC_COMPONENT_INDEX },
+	{ "objects", FSYNC_COMPONENTS_OBJECTS },
+	{ "reference", FSYNC_COMPONENT_REFERENCE },
+	{ "derived-metadata", FSYNC_COMPONENTS_DERIVED_METADATA },
+	{ "committed", FSYNC_COMPONENTS_COMMITTED },
+	{ "added", FSYNC_COMPONENTS_ADDED },
+	{ "all", FSYNC_COMPONENTS_ALL },
+};
+
+static enum fsync_component parse_fsync_components(const char *var, const char *string)
+{
+	enum fsync_component current = FSYNC_COMPONENTS_DEFAULT;
+	enum fsync_component positive = 0, negative = 0;
+
+	while (string) {
+		int i;
+		size_t len;
+		const char *ep;
+		int negated = 0;
+		int found = 0;
+
+		string = string + strspn(string, ", \t\n\r");
+		ep = strchrnul(string, ',');
+		len = ep - string;
+		if (!strcmp(string, "none")) {
+			current = FSYNC_COMPONENT_NONE;
+			goto next_name;
+		}
+
+		if (*string == '-') {
+			negated = 1;
+			string++;
+			len--;
+			if (!len)
+				warning(_("invalid value for variable %s"), var);
+		}
+
+		if (!len)
+			break;
+
+		for (i = 0; i < ARRAY_SIZE(fsync_component_names); ++i) {
+			const struct fsync_component_name *n = &fsync_component_names[i];
+
+			if (strncmp(n->name, string, len))
+				continue;
+
+			found = 1;
+			if (negated)
+				negative |= n->component_bits;
+			else
+				positive |= n->component_bits;
+		}
+
+		if (!found) {
+			char *component = xstrndup(string, len);
+			warning(_("ignoring unknown core.fsync component '%s'"), component);
+			free(component);
+		}
+
+next_name:
+		string = ep;
+	}
+
+	return (current & ~negative) | positive;
+}
+
 int git_parse_maybe_bool(const char *value)
 {
 	int v = git_parse_maybe_bool_text(value);
@@ -1598,7 +1674,28 @@ static int git_default_core_config(const char *var, const char *value, void *cb)
 		return 0;
 	}
 
+	if (!strcmp(var, "core.fsync")) {
+		if (!value)
+			return config_error_nonbool(var);
+		fsync_components = parse_fsync_components(var, value);
+		return 0;
+	}
+
+	if (!strcmp(var, "core.fsyncmethod")) {
+		if (!value)
+			return config_error_nonbool(var);
+		if (!strcmp(value, "fsync"))
+			fsync_method = FSYNC_METHOD_FSYNC;
+		else if (!strcmp(value, "writeout-only"))
+			fsync_method = FSYNC_METHOD_WRITEOUT_ONLY;
+		else
+			warning(_("ignoring unknown core.fsyncMethod value '%s'"), value);
+
+	}
+
 	if (!strcmp(var, "core.fsyncobjectfiles")) {
+		if (fsync_object_files < 0)
+			warning(_("core.fsyncObjectFiles is deprecated; use core.fsync instead"));
 		fsync_object_files = git_config_bool(var, value);
 		return 0;
 	}
@@ -1650,6 +1747,17 @@ static int git_default_core_config(const char *var, const char *value, void *cb)
 
 	/* Add other config variables here and to Documentation/config.txt. */
 	return platform_core_config(var, value, cb);
+}
+
+static int git_default_sparse_config(const char *var, const char *value)
+{
+	if (!strcmp(var, "sparse.expectfilesoutsideofpatterns")) {
+		sparse_expect_files_outside_of_patterns = git_config_bool(var, value);
+		return 0;
+	}
+
+	/* Add other config variables here and to Documentation/config/sparse.txt. */
+	return 0;
 }
 
 static int git_default_i18n_config(const char *var, const char *value)
@@ -1782,6 +1890,9 @@ int git_default_config(const char *var, const char *value, void *cb)
 		pack_compression_seen = 1;
 		return 0;
 	}
+
+	if (starts_with(var, "sparse."))
+		return git_default_sparse_config(var, value);
 
 	/* Add other config variables here and to Documentation/config.txt. */
 	return 0;
@@ -2294,8 +2405,8 @@ int git_configset_get_string(struct config_set *cs, const char *key, char **dest
 		return 1;
 }
 
-int git_configset_get_string_tmp(struct config_set *cs, const char *key,
-				 const char **dest)
+static int git_configset_get_string_tmp(struct config_set *cs, const char *key,
+					const char **dest)
 {
 	const char *value;
 	if (!git_configset_get_value(cs, key, &value)) {
@@ -2622,20 +2733,6 @@ int git_config_get_max_percent_split_change(void)
 	}
 
 	return -1; /* default value */
-}
-
-int git_config_get_fsmonitor(void)
-{
-	if (git_config_get_pathname("core.fsmonitor", &core_fsmonitor))
-		core_fsmonitor = getenv("GIT_TEST_FSMONITOR");
-
-	if (core_fsmonitor && !*core_fsmonitor)
-		core_fsmonitor = NULL;
-
-	if (core_fsmonitor)
-		return 1;
-
-	return 0;
 }
 
 int git_config_get_index_threads(int *dest)
@@ -3000,6 +3097,20 @@ int git_config_set_gently(const char *key, const char *value)
 	return git_config_set_multivar_gently(key, value, NULL, 0);
 }
 
+int repo_config_set_worktree_gently(struct repository *r,
+				    const char *key, const char *value)
+{
+	/* Only use worktree-specific config if it is is already enabled. */
+	if (repository_format_worktree_config) {
+		char *file = repo_git_path(r, "config.worktree");
+		int ret = git_config_set_multivar_in_file_gently(
+					file, key, value, NULL, 0);
+		free(file);
+		return ret;
+	}
+	return repo_config_set_multivar_gently(r, key, value, NULL, 0);
+}
+
 void git_config_set(const char *key, const char *value)
 {
 	git_config_set_multivar(key, value, NULL, 0);
@@ -3297,14 +3408,28 @@ void git_config_set_multivar_in_file(const char *config_filename,
 int git_config_set_multivar_gently(const char *key, const char *value,
 				   const char *value_pattern, unsigned flags)
 {
-	return git_config_set_multivar_in_file_gently(NULL, key, value, value_pattern,
-						      flags);
+	return repo_config_set_multivar_gently(the_repository, key, value,
+					       value_pattern, flags);
+}
+
+int repo_config_set_multivar_gently(struct repository *r, const char *key,
+				    const char *value,
+				    const char *value_pattern, unsigned flags)
+{
+	char *file = repo_git_path(r, "config");
+	int res = git_config_set_multivar_in_file_gently(file,
+							 key, value,
+							 value_pattern,
+							 flags);
+	free(file);
+	return res;
 }
 
 void git_config_set_multivar(const char *key, const char *value,
 			     const char *value_pattern, unsigned flags)
 {
-	git_config_set_multivar_in_file(NULL, key, value, value_pattern,
+	git_config_set_multivar_in_file(git_path("config"),
+					key, value, value_pattern,
 					flags);
 }
 

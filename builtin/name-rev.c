@@ -9,6 +9,7 @@
 #include "prio-queue.h"
 #include "hash-lookup.h"
 #include "commit-slab.h"
+#include "commit-graph.h"
 
 /*
  * One day.  See the 'name a rev shortly after epoch' test in t6120 when
@@ -17,7 +18,7 @@
 #define CUTOFF_DATE_SLOP 86400
 
 struct rev_name {
-	char *tip_name;
+	const char *tip_name;
 	timestamp_t taggerdate;
 	int generation;
 	int distance;
@@ -26,15 +27,64 @@ struct rev_name {
 
 define_commit_slab(commit_rev_name, struct rev_name);
 
+static timestamp_t generation_cutoff = GENERATION_NUMBER_INFINITY;
 static timestamp_t cutoff = TIME_MAX;
 static struct commit_rev_name rev_names;
+
+/* Disable the cutoff checks entirely */
+static void disable_cutoff(void)
+{
+	generation_cutoff = 0;
+	cutoff = 0;
+}
+
+/* Cutoff searching any commits older than this one */
+static void set_commit_cutoff(struct commit *commit)
+{
+
+	if (cutoff > commit->date)
+		cutoff = commit->date;
+
+	if (generation_cutoff) {
+		timestamp_t generation = commit_graph_generation(commit);
+
+		if (generation_cutoff > generation)
+			generation_cutoff = generation;
+	}
+}
+
+/* adjust the commit date cutoff with a slop to allow for slightly incorrect
+ * commit timestamps in case of clock skew.
+ */
+static void adjust_cutoff_timestamp_for_slop(void)
+{
+	if (cutoff) {
+		/* check for undeflow */
+		if (cutoff > TIME_MIN + CUTOFF_DATE_SLOP)
+			cutoff = cutoff - CUTOFF_DATE_SLOP;
+		else
+			cutoff = TIME_MIN;
+	}
+}
+
+/* Check if a commit is before the cutoff. Prioritize generation numbers
+ * first, but use the commit timestamp if we lack generation data.
+ */
+static int commit_is_before_cutoff(struct commit *commit)
+{
+	if (generation_cutoff < GENERATION_NUMBER_INFINITY)
+		return generation_cutoff &&
+			commit_graph_generation(commit) < generation_cutoff;
+
+	return commit->date < cutoff;
+}
 
 /* How many generations are maximally preferred over _one_ merge traversal? */
 #define MERGE_TRAVERSAL_WEIGHT 65535
 
 static int is_valid_rev_name(const struct rev_name *name)
 {
-	return name && (name->generation || name->tip_name);
+	return name && name->tip_name;
 }
 
 static struct rev_name *get_commit_rev_name(const struct commit *commit)
@@ -96,20 +146,9 @@ static struct rev_name *create_or_update_name(struct commit *commit,
 {
 	struct rev_name *name = commit_rev_name_at(&rev_names, commit);
 
-	if (is_valid_rev_name(name)) {
-		if (!is_better_name(name, taggerdate, generation, distance, from_tag))
-			return NULL;
-
-		/*
-		 * This string might still be shared with ancestors
-		 * (generation > 0).  We can release it here regardless,
-		 * because the new name that has just won will be better
-		 * for them as well, so name_rev() will replace these
-		 * stale pointers when it processes the parents.
-		 */
-		if (!name->generation)
-			free(name->tip_name);
-	}
+	if (is_valid_rev_name(name) &&
+	    !is_better_name(name, taggerdate, generation, distance, from_tag))
+		return NULL;
 
 	name->taggerdate = taggerdate;
 	name->generation = generation;
@@ -151,7 +190,7 @@ static void name_rev(struct commit *start_commit,
 	struct rev_name *start_name;
 
 	parse_commit(start_commit);
-	if (start_commit->date < cutoff)
+	if (commit_is_before_cutoff(start_commit))
 		return;
 
 	start_name = create_or_update_name(start_commit, taggerdate, 0, 0,
@@ -181,7 +220,7 @@ static void name_rev(struct commit *start_commit,
 			int generation, distance;
 
 			parse_commit(parent);
-			if (parent->date < cutoff)
+			if (commit_is_before_cutoff(parent))
 				continue;
 
 			if (parent_number > 1) {
@@ -473,7 +512,7 @@ static void show_name(const struct object *obj,
 static char const * const name_rev_usage[] = {
 	N_("git name-rev [<options>] <commit>..."),
 	N_("git name-rev [<options>] --all"),
-	N_("git name-rev [<options>] --stdin"),
+	N_("git name-rev [<options>] --annotate-stdin"),
 	NULL
 };
 
@@ -568,7 +607,7 @@ int cmd_name_rev(int argc, const char **argv, const char *prefix)
 		usage_with_options(name_rev_usage, opts);
 	}
 	if (all || annotate_stdin)
-		cutoff = 0;
+		disable_cutoff();
 
 	for (; argc; argc--, argv++) {
 		struct object_id oid;
@@ -596,10 +635,8 @@ int cmd_name_rev(int argc, const char **argv, const char *prefix)
 			continue;
 		}
 
-		if (commit) {
-			if (cutoff > commit->date)
-				cutoff = commit->date;
-		}
+		if (commit)
+			set_commit_cutoff(commit);
 
 		if (peel_tag) {
 			if (!commit) {
@@ -612,13 +649,8 @@ int cmd_name_rev(int argc, const char **argv, const char *prefix)
 		add_object_array(object, *argv, &revs);
 	}
 
-	if (cutoff) {
-		/* check for undeflow */
-		if (cutoff > TIME_MIN + CUTOFF_DATE_SLOP)
-			cutoff = cutoff - CUTOFF_DATE_SLOP;
-		else
-			cutoff = TIME_MIN;
-	}
+	adjust_cutoff_timestamp_for_slop();
+
 	for_each_ref(name_ref, &data);
 	name_tips();
 

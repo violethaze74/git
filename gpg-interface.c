@@ -716,7 +716,7 @@ int git_gpg_config(const char *var, const char *value, void *cb)
 			return config_error_nonbool(var);
 		fmt = get_format_by_name(value);
 		if (!fmt)
-			return error("unsupported value for %s: %s",
+			return error(_("invalid value for '%s': '%s'"),
 				     var, value);
 		use_format = fmt;
 		return 0;
@@ -731,8 +731,8 @@ int git_gpg_config(const char *var, const char *value, void *cb)
 		free(trust);
 
 		if (ret)
-			return error("unsupported value for %s: %s", var,
-				     value);
+			return error(_("invalid value for '%s': '%s'"),
+				     var, value);
 		return 0;
 	}
 
@@ -934,6 +934,7 @@ static int sign_buffer_gpg(struct strbuf *buffer, struct strbuf *signature,
 	struct child_process gpg = CHILD_PROCESS_INIT;
 	int ret;
 	size_t bottom;
+	const char *cp;
 	struct strbuf gpg_status = STRBUF_INIT;
 
 	strvec_pushl(&gpg.args,
@@ -953,7 +954,13 @@ static int sign_buffer_gpg(struct strbuf *buffer, struct strbuf *signature,
 			   signature, 1024, &gpg_status, 0);
 	sigchain_pop(SIGPIPE);
 
-	ret |= !strstr(gpg_status.buf, "\n[GNUPG:] SIG_CREATED ");
+	for (cp = gpg_status.buf;
+	     cp && (cp = strstr(cp, "[GNUPG:] SIG_CREATED "));
+	     cp++) {
+		if (cp == gpg_status.buf || cp[-1] == '\n')
+			break; /* found */
+	}
+	ret |= !cp;
 	strbuf_release(&gpg_status);
 	if (ret)
 		return error(_("gpg failed to sign the data"));
